@@ -124,10 +124,6 @@ Responde siempre en español y sugiere consultar a un médico para diagnósticos
                 "síntomas y especialidades médicas. ¿Puedes reformular tu pregunta?"
             )
 
-        # DEBUG TEMPORAL: mostrar la query generada para verificar que sea correcta
-        import streamlit as st
-        st.caption(f"🔍 Query generada: `{cypher_query}`")
-
         # Validación de seguridad: bloquear operaciones de escritura
         if not _es_query_segura(cypher_query):
             return "Lo siento, no puedo procesar esa solicitud."
@@ -137,13 +133,13 @@ Responde siempre en español y sugiere consultar a un médico para diagnósticos
             datos = self.db.ejecutar_consulta(cypher_query)
         except ServiceUnavailable:
             return "No se pudo conectar a la base de datos. Por favor intenta de nuevo más tarde."
-        except CypherSyntaxError:
-            return "Hubo un problema al interpretar tu consulta. Intenta describirla de otra forma."
+        except CypherSyntaxError as e:
+            return f"Error de sintaxis en la query generada.\n\nQuery: `{cypher_query}`\n\nError: {e}"
         except Exception as e:
             return f"Ocurrió un error inesperado al consultar la base de datos: {e}"
 
         if not datos:
-            return "No encontré información relacionada en mi base de datos. Intenta describir tus síntomas con más detalle."
+            return f"Sin resultados. Query ejecutada:\n```\n{cypher_query}\n```"
 
         # Paso 3: IA convierte los datos crudos en una respuesta amigable
         prompt_redaccion = f"""
