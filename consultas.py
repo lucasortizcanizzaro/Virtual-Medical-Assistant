@@ -1,5 +1,6 @@
 import os
 import re
+import time
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -21,6 +22,35 @@ _CYPHER_WRITE_PATTERN = re.compile(
 def _es_query_segura(query: str) -> bool:
     """Bloquea operaciones de escritura en consultas generadas por la IA."""
     return not _CYPHER_WRITE_PATTERN.search(query)
+
+
+def _generar_con_reintento(client, model: str, contents: str, config, max_intentos: int = 3) -> str:
+    """Llama a generate_content con reintento exponencial ante error 429."""
+    espera = 5  # segundos iniciales de espera
+    for intento in range(max_intentos):
+        try:
+            return client.models.generate_content(
+                model=model,
+                contents=contents,
+                config=config,
+            ).text
+        except ClientError as e:
+            if e.code == 429 and intento < max_intentos - 1:
+                time.sleep(espera)
+                espera *= 2  # backoff exponencial: 5s, 10s, 20s
+                continue
+            elif e.code == 429:
+                raise ClientError(
+                    message="Límite de solicitudes a la API de Gemini alcanzado. Espera unos segundos e intenta de nuevo.",
+                    code=429,
+                ) from e
+            elif e.code in (401, 403):
+                raise ClientError(
+                    message="API key de Gemini inválida o sin permisos. Verifica tu configuración.",
+                    code=e.code,
+                ) from e
+            else:
+                raise
 
 
 def _get_secret(key: str) -> str:
@@ -81,13 +111,11 @@ Responde siempre en español y sugiere consultar a un médico para diagnósticos
 
         # Paso 1: IA traduce la pregunta del usuario a una consulta Cypher
         try:
-            cypher_query = self.client.models.generate_content(
-                model="gemini-2.0-flash",
-                contents=contexto,
-                config=self.config_traductor,
-            ).text.strip()
+            cypher_query = _generar_con_reintento(
+                self.client, "gemini-2.5-flash", contexto, self.config_traductor
+            ).strip()
         except ClientError as e:
-            return f"No se pudo conectar con el modelo de IA. Verifica que la API key de Gemini esté configurada correctamente. (Detalle: {e.code})"
+            return str(e)
 
         if cypher_query.lower() == "error":
             return (
@@ -120,13 +148,11 @@ Los datos encontrados en la base de datos médica son: {datos}
 Redacta una respuesta clara y amigable basada ÚNICAMENTE en esos datos.
 """
         try:
-            return self.client.models.generate_content(
-                model="gemini-2.0-flash",
-                contents=prompt_redaccion,
-                config=self.config_redactor,
-            ).text
+            return _generar_con_reintento(
+                self.client, "gemini-2.5-flash", prompt_redaccion, self.config_redactor
+            )
         except ClientError as e:
-            return f"Se obtuvieron datos de la base de datos pero ocurrió un error al generar la respuesta. (Detalle: {e.code})"
+            return str(e)
 
     def cerrar(self):
         self.db.close()
