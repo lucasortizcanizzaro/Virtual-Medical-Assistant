@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 from neo4j.exceptions import ServiceUnavailable, CypherSyntaxError
-from google.genai.errors import ClientError
+from google.genai.errors import ClientError, ServerError
 from obtenerSintomas import MedicoDB
 
 # En local carga el .env; en Streamlit Cloud no existe ese archivo
@@ -25,7 +25,7 @@ def _es_query_segura(query: str) -> bool:
 
 
 def _generar_con_reintento(client, model: str, contents: str, config, max_intentos: int = 3) -> str:
-    """Llama a generate_content con reintento exponencial ante error 429."""
+    """Llama a generate_content con reintento exponencial ante errores 429 y 500."""
     espera = 5  # segundos iniciales de espera
     for intento in range(max_intentos):
         try:
@@ -34,21 +34,22 @@ def _generar_con_reintento(client, model: str, contents: str, config, max_intent
                 contents=contents,
                 config=config,
             ).text
+        except ServerError:
+            # Error 500 del servidor de Gemini — suele ser transitorio
+            if intento < max_intentos - 1:
+                time.sleep(espera)
+                espera *= 2
+                continue
+            raise RuntimeError("El servidor de Gemini no está disponible en este momento. Intenta de nuevo en unos segundos.")
         except ClientError as e:
             if e.code == 429 and intento < max_intentos - 1:
                 time.sleep(espera)
                 espera *= 2  # backoff exponencial: 5s, 10s, 20s
                 continue
             elif e.code == 429:
-                raise ClientError(
-                    message="Límite de solicitudes a la API de Gemini alcanzado. Espera unos segundos e intenta de nuevo.",
-                    code=429,
-                ) from e
+                raise RuntimeError("Límite de solicitudes a la API de Gemini alcanzado. Espera unos segundos e intenta de nuevo.")
             elif e.code in (401, 403):
-                raise ClientError(
-                    message="API key de Gemini inválida o sin permisos. Verifica tu configuración.",
-                    code=e.code,
-                ) from e
+                raise RuntimeError("API key de Gemini inválida o sin permisos. Verifica tu configuración.")
             else:
                 raise
 
@@ -114,7 +115,7 @@ Responde siempre en español y sugiere consultar a un médico para diagnósticos
             cypher_query = _generar_con_reintento(
                 self.client, "gemini-2.5-flash", contexto, self.config_traductor
             ).strip()
-        except ClientError as e:
+        except Exception as e:
             return str(e)
 
         if cypher_query.lower() == "error":
@@ -122,6 +123,10 @@ Responde siempre en español y sugiere consultar a un médico para diagnósticos
                 "Lo siento, mi base de datos solo contiene información sobre enfermedades, "
                 "síntomas y especialidades médicas. ¿Puedes reformular tu pregunta?"
             )
+
+        # DEBUG TEMPORAL: mostrar la query generada para verificar que sea correcta
+        import streamlit as st
+        st.caption(f"🔍 Query generada: `{cypher_query}`")
 
         # Validación de seguridad: bloquear operaciones de escritura
         if not _es_query_segura(cypher_query):
@@ -151,7 +156,7 @@ Redacta una respuesta clara y amigable basada ÚNICAMENTE en esos datos.
             return _generar_con_reintento(
                 self.client, "gemini-2.5-flash", prompt_redaccion, self.config_redactor
             )
-        except ClientError as e:
+        except Exception as e:
             return str(e)
 
     def cerrar(self):
