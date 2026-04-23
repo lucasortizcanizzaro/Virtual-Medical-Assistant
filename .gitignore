@@ -1,0 +1,20 @@
+# Entornos virtuales
+.venv/
+venv/
+Lib/
+Scripts/
+Include/
+share/
+etc/
+pyvenv.cfg
+
+# Credenciales — NUNCA subir al repositorio
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Streamlit local
+.streamlit/
