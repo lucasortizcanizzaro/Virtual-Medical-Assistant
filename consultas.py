@@ -53,7 +53,7 @@ Responde siempre en español y sugiere consultar a un médico para diagnósticos
     def preguntar(self, texto_usuario: str) -> str:
         # Paso 1: IA traduce la pregunta del usuario a una consulta Cypher
         cypher_query = self.client.models.generate_content(
-            model="gemini-1.5-flash",
+            model="gemini-2.0-flash",
             contents=texto_usuario,
             config=self.config_traductor,
         ).text.strip()
@@ -81,7 +81,7 @@ Los datos encontrados en la base de datos médica son: {datos}
 Redacta una respuesta clara y amigable basada ÚNICAMENTE en esos datos.
 """
         return self.client.models.generate_content(
-            model="gemini-1.5-flash",
+            model="gemini-2.0-flash",
             contents=prompt_redaccion,
             config=self.config_redactor,
         ).text
