@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 from neo4j.exceptions import ServiceUnavailable, CypherSyntaxError
+from google.genai.errors import ClientError
 from obtenerSintomas import MedicoDB
 
 # En local carga el .env; en Streamlit Cloud no existe ese archivo
@@ -71,17 +72,22 @@ Responde siempre en español y sugiere consultar a un médico para diagnósticos
             lineas = []
             for msg in mensajes_previos:
                 rol = "Paciente" if msg["role"] == "user" else "Asistente"
-                lineas.append(f"{rol}: {msg['content']}")
+                # Truncar cada mensaje para no inflar el contexto
+                contenido = msg['content'][:300] + "..." if len(msg['content']) > 300 else msg['content']
+                lineas.append(f"{rol}: {contenido}")
             contexto = "Contexto previo de la conversación:\n" + "\n".join(lineas) + f"\n\nPregunta actual: {texto_usuario}"
         else:
             contexto = texto_usuario
 
         # Paso 1: IA traduce la pregunta del usuario a una consulta Cypher
-        cypher_query = self.client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=contexto,
-            config=self.config_traductor,
-        ).text.strip()
+        try:
+            cypher_query = self.client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=contexto,
+                config=self.config_traductor,
+            ).text.strip()
+        except ClientError as e:
+            return f"No se pudo conectar con el modelo de IA. Verifica que la API key de Gemini esté configurada correctamente. (Detalle: {e.code})"
 
         if cypher_query.lower() == "error":
             return (
@@ -113,11 +119,14 @@ Los datos encontrados en la base de datos médica son: {datos}
 
 Redacta una respuesta clara y amigable basada ÚNICAMENTE en esos datos.
 """
-        return self.client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=prompt_redaccion,
-            config=self.config_redactor,
-        ).text
+        try:
+            return self.client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=prompt_redaccion,
+                config=self.config_redactor,
+            ).text
+        except ClientError as e:
+            return f"Se obtuvieron datos de la base de datos pero ocurrió un error al generar la respuesta. (Detalle: {e.code})"
 
     def cerrar(self):
         self.db.close()
