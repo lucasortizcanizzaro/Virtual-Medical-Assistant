@@ -1,12 +1,25 @@
 import os
+import re
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+from neo4j.exceptions import ServiceUnavailable, CypherSyntaxError
 from obtenerSintomas import MedicoDB
 
 # En local carga el .env; en Streamlit Cloud no existe ese archivo
 # y las credenciales se leen desde st.secrets (ver más abajo).
 load_dotenv()
+
+# Patrón que detecta operaciones de escritura en Cypher
+_CYPHER_WRITE_PATTERN = re.compile(
+    r'\b(create|delete|detach|merge|set|remove|drop|call)\b',
+    re.IGNORECASE
+)
+
+
+def _es_query_segura(query: str) -> bool:
+    """Bloquea operaciones de escritura en consultas generadas por la IA."""
+    return not _CYPHER_WRITE_PATTERN.search(query)
 
 
 def _get_secret(key: str) -> str:
@@ -40,7 +53,8 @@ Esquema de la base de datos:
 Reglas estrictas:
 1. Devuelve SOLO el código Cypher. Sin explicaciones ni bloques de código markdown.
 2. Usa toLower(n.nombre) CONTAINS toLower('valor') para búsquedas flexibles.
-3. Si la pregunta no puede responderse con este esquema, devuelve exactamente: error""",
+3. Si la pregunta no puede responderse con este esquema, devuelve exactamente: error
+4. NUNCA generes operaciones de escritura (CREATE, DELETE, MERGE, SET, REMOVE, DROP). Solo consultas de lectura.""",
         )
 
         # Configuración del modelo 2: Convierte datos crudos en respuesta humana
@@ -50,11 +64,22 @@ médicas de forma clara y amigable para pacientes no especializados.
 Responde siempre en español y sugiere consultar a un médico para diagnósticos definitivos.""",
         )
 
-    def preguntar(self, texto_usuario: str) -> str:
+    def preguntar(self, texto_usuario: str, historial: list = None) -> str:
+        # Construir contexto conversacional para el modelo Cypher
+        if historial and len(historial) > 1:
+            mensajes_previos = historial[-7:-1]  # Últimos 6 mensajes, excluye el actual
+            lineas = []
+            for msg in mensajes_previos:
+                rol = "Paciente" if msg["role"] == "user" else "Asistente"
+                lineas.append(f"{rol}: {msg['content']}")
+            contexto = "Contexto previo de la conversación:\n" + "\n".join(lineas) + f"\n\nPregunta actual: {texto_usuario}"
+        else:
+            contexto = texto_usuario
+
         # Paso 1: IA traduce la pregunta del usuario a una consulta Cypher
         cypher_query = self.client.models.generate_content(
             model="gemini-2.0-flash",
-            contents=texto_usuario,
+            contents=contexto,
             config=self.config_traductor,
         ).text.strip()
 
@@ -64,11 +89,19 @@ Responde siempre en español y sugiere consultar a un médico para diagnósticos
                 "síntomas y especialidades médicas. ¿Puedes reformular tu pregunta?"
             )
 
+        # Validación de seguridad: bloquear operaciones de escritura
+        if not _es_query_segura(cypher_query):
+            return "Lo siento, no puedo procesar esa solicitud."
+
         # Paso 2: Ejecutar la consulta Cypher en Neo4j
         try:
             datos = self.db.ejecutar_consulta(cypher_query)
-        except Exception:
-            return "Ocurrió un error al consultar la base de datos. Por favor intenta de nuevo."
+        except ServiceUnavailable:
+            return "No se pudo conectar a la base de datos. Por favor intenta de nuevo más tarde."
+        except CypherSyntaxError:
+            return "Hubo un problema al interpretar tu consulta. Intenta describirla de otra forma."
+        except Exception as e:
+            return f"Ocurrió un error inesperado al consultar la base de datos: {e}"
 
         if not datos:
             return "No encontré información relacionada en mi base de datos. Intenta describir tus síntomas con más detalle."

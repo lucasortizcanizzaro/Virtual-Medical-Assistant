@@ -45,6 +45,6 @@ if prompt := st.chat_input("Describe tus síntomas aquí..."):
     # Llamar al asistente y mostrar la respuesta
     with st.chat_message("assistant"):
         with st.spinner("Analizando tu consulta..."):
-            respuesta = asistente.preguntar(prompt)
+            respuesta = asistente.preguntar(prompt, st.session_state.mensajes)
         st.write(respuesta)
         st.session_state.mensajes.append({"role": "assistant", "content": respuesta})
