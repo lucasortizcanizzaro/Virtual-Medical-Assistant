@@ -1,6 +1,7 @@
 import os
 import re
 import time
+import unicodedata
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -17,6 +18,14 @@ _CYPHER_WRITE_PATTERN = re.compile(
     r'\b(create|delete|detach|merge|set|remove|drop|call)\b',
     re.IGNORECASE
 )
+
+
+def _sin_tildes(texto: str) -> str:
+    """Elimina tildes y diacríticos. Ej: 'diarréa' → 'diarrea'."""
+    return ''.join(
+        c for c in unicodedata.normalize('NFD', texto)
+        if unicodedata.category(c) != 'Mn'
+    )
 
 
 def _es_query_segura(query: str) -> bool:
@@ -75,16 +84,23 @@ class AsistenteMedico:
             password=_get_secret("NEO4J_PASSWORD"),
         )
 
+        # Macro de normalización reutilizable en el system_instruction
+        _norm = lambda campo: (
+            f"replace(replace(replace(replace(replace(replace(replace("
+            f"toLower({campo}),'á','a'),'é','e'),'í','i'),'ó','o'),'ú','u'),'ñ','n'),'ü','u')"
+        )
+
         # Configuración del modelo 1: Traduce lenguaje natural → Cypher
         self.config_traductor = types.GenerateContentConfig(
-            system_instruction="""Eres un experto en Neo4j. Traduces lenguaje natural a consultas Cypher.
+            system_instruction=f"""Eres un experto en Neo4j. Traduces lenguaje natural a consultas Cypher.
 Esquema de la base de datos:
-- Nodos: Enfermedad {nombre, gravedad}, Sintoma {nombre, habitualidad}, Especialidad {nombre}
+- Nodos: Enfermedad {{nombre, gravedad}}, Sintoma {{nombre, habitualidad}}, Especialidad {{nombre}}
 - Relaciones: (Enfermedad)-[:GENERA]->(Sintoma), (Especialidad)-[:TRATA]->(Enfermedad)
 
 Reglas estrictas:
 1. Devuelve SOLO el código Cypher. Sin explicaciones ni bloques de código markdown.
-2. Usa toLower(n.nombre) CONTAINS toLower('valor') para búsquedas flexibles.
+2. Para comparaciones de texto SIEMPRE normaliza ambos lados quitando tildes y usando minúsculas:
+   {_norm("n.nombre")} CONTAINS {_norm("'valor'")}
 3. Si la pregunta no puede responderse con este esquema, devuelve exactamente: error
 4. NUNCA generes operaciones de escritura (CREATE, DELETE, MERGE, SET, REMOVE, DROP). Solo consultas de lectura.""",
         )
@@ -97,6 +113,9 @@ Responde siempre en español y sugiere consultar a un médico para diagnósticos
         )
 
     def preguntar(self, texto_usuario: str, historial: list = None) -> str:
+        # Normalizar input del usuario: quitar tildes para asegurar el match
+        texto_normalizado = _sin_tildes(texto_usuario)
+
         # Construir contexto conversacional para el modelo Cypher
         if historial and len(historial) > 1:
             mensajes_previos = historial[-7:-1]  # Últimos 6 mensajes, excluye el actual
@@ -105,10 +124,10 @@ Responde siempre en español y sugiere consultar a un médico para diagnósticos
                 rol = "Paciente" if msg["role"] == "user" else "Asistente"
                 # Truncar cada mensaje para no inflar el contexto
                 contenido = msg['content'][:300] + "..." if len(msg['content']) > 300 else msg['content']
-                lineas.append(f"{rol}: {contenido}")
-            contexto = "Contexto previo de la conversación:\n" + "\n".join(lineas) + f"\n\nPregunta actual: {texto_usuario}"
+                lineas.append(f"{rol}: {_sin_tildes(contenido)}")
+            contexto = "Contexto previo de la conversacion:\n" + "\n".join(lineas) + f"\n\nPregunta actual: {texto_normalizado}"
         else:
-            contexto = texto_usuario
+            contexto = texto_normalizado
 
         # Paso 1: IA traduce la pregunta del usuario a una consulta Cypher
         try:
