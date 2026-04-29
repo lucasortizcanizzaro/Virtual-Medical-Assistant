@@ -30,11 +30,27 @@ html, body,
 
 /* ─ Ocultar chrome de Streamlit ───────────────────────────────────────────── */
 #MainMenu, footer { visibility: hidden !important; }
-[data-testid="stToolbar"] { display: none !important; }
 [data-testid="stDecoration"] { display: none !important; }
 [data-testid="stMainMenuButton"] { display: none !important; }
 [data-testid="stBaseButton-header"] { display: none !important; }
-header { background: transparent !important; box-shadow: none !important; }
+
+/* stToolbar NO se oculta con display:none porque contiene stExpandSidebarButton.
+   En su lugar lo aplastamos a 0 altura y dejamos overflow visible para que el
+   botón position:fixed pueda posicionarse en el centro de la pantalla. */
+header {
+    background: transparent !important;
+    box-shadow: none !important;
+    height: 0 !important;
+    overflow: visible !important;
+    min-height: 0 !important;
+}
+[data-testid="stToolbar"] {
+    background: transparent !important;
+    height: 0 !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    min-height: 0 !important;
+}
 
 /* ─ Botón toggle del sidebar ─────────────────────────────────────────────── */
 /* stExpandSidebarButton aparece en el header cuando el sidebar está cerrado   */
