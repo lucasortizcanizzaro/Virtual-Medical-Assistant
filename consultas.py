@@ -33,6 +33,15 @@ def _es_query_segura(query: str) -> bool:
     return not _CYPHER_WRITE_PATTERN.search(query)
 
 
+def _generar_embedding(client, texto: str) -> list:
+    """Convierte texto en un vector de 768 dimensiones usando text-embedding-004."""
+    result = client.models.embed_content(
+        model="text-embedding-004",
+        contents=texto,
+    )
+    return result.embeddings[0].values
+
+
 def _generar_con_reintento(client, model: str, contents: str, config, max_intentos: int = 3) -> str:
     """Llama a generate_content con reintento exponencial ante errores 429 y 500."""
     espera = 5  # segundos iniciales de espera
@@ -148,36 +157,47 @@ Responde siempre en español y sugiere consultar a un médico para diagnósticos
         else:
             contexto = texto_normalizado
 
-        # Paso 1: IA traduce la pregunta del usuario a una consulta Cypher
+        # --- RUTA 1: Búsqueda semántica por vector ---
+        # Genera el embedding del texto del usuario y busca síntomas similares en Neo4j.
+        # Si la similitud es suficientemente alta (≥0.75), usa estos resultados directamente.
+        datos = []
         try:
-            cypher_query = _generar_con_reintento(
-                self.client, "gemini-2.5-flash", contexto, self.config_traductor
-            ).strip()
-        except Exception as e:
-            return str(e)
+            vector = _generar_embedding(self.client, texto_usuario)
+            candidatos = self.db.buscar_por_vector("sintoma_embeddings", vector, top_k=5)
+            # Filtrar solo resultados con alta similitud semántica
+            datos = [d for d in candidatos if d.get("relevancia", 0) >= 0.75]
+        except Exception:
+            datos = []  # Si falla el embedding, continúa con Text-to-Cypher
 
-        if cypher_query.lower() == "error":
-            return (
-                "Lo siento, mi base de datos solo contiene información sobre enfermedades, "
-                "síntomas y especialidades médicas. ¿Puedes reformular tu pregunta?"
-            )
-
-        # Validación de seguridad: bloquear operaciones de escritura
-        if not _es_query_segura(cypher_query):
-            return "Lo siento, no puedo procesar esa solicitud."
-
-        # Paso 2: Ejecutar la consulta Cypher en Neo4j
-        try:
-            datos = self.db.ejecutar_consulta(cypher_query)
-        except ServiceUnavailable:
-            return "No se pudo conectar a la base de datos. Por favor intenta de nuevo más tarde."
-        except CypherSyntaxError as e:
-            return f"Error de sintaxis en la query generada.\n\nQuery: `{cypher_query}`\n\nError: {e}"
-        except Exception as e:
-            return f"Ocurrió un error inesperado al consultar la base de datos: {e}"
-
+        # --- RUTA 2: Text-to-Cypher (fallback si el vector no dio resultados) ---
         if not datos:
-            return f"Sin resultados. Query ejecutada:\n```\n{cypher_query}\n```"
+            try:
+                cypher_query = _generar_con_reintento(
+                    self.client, "gemini-2.5-flash", contexto, self.config_traductor
+                ).strip()
+            except Exception as e:
+                return str(e)
+
+            if cypher_query.lower() == "error":
+                return (
+                    "Lo siento, mi base de datos solo contiene información sobre enfermedades, "
+                    "síntomas y especialidades médicas. ¿Puedes reformular tu pregunta?"
+                )
+
+            if not _es_query_segura(cypher_query):
+                return "Lo siento, no puedo procesar esa solicitud."
+
+            try:
+                datos = self.db.ejecutar_consulta(cypher_query)
+            except ServiceUnavailable:
+                return "No se pudo conectar a la base de datos. Por favor intenta de nuevo más tarde."
+            except CypherSyntaxError as e:
+                return f"Error de sintaxis en la query generada.\n\nQuery: `{cypher_query}`\n\nError: {e}"
+            except Exception as e:
+                return f"Ocurrió un error inesperado al consultar la base de datos: {e}"
+
+            if not datos:
+                return f"Sin resultados. Query ejecutada:\n```\n{cypher_query}\n```"
 
         # Paso 3: Evaluar qué enfermedad se adecúa mejor al paciente
         prompt_evaluacion = f"""
