@@ -15,67 +15,6 @@ def _load_css() -> None:
     css = (_ASSETS / "style.css").read_text(encoding="utf-8")
     st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
 
-def _inject_sidebar_toggle() -> None:
-    """Inject a real floating button that triggers Streamlit's native sidebar toggle."""
-    import streamlit.components.v1 as components
-    components.html(
-        """
-        <script>
-        (function() {
-            function injectBtn() {
-                if (window.parent.document.getElementById('_sb_toggle_btn')) return;
-
-                var btn = document.createElement('button');
-                btn.id = '_sb_toggle_btn';
-                btn.innerHTML = '&#9776;';
-                btn.title = 'Abrir / cerrar panel';
-                btn.style.cssText = [
-                    'position:fixed',
-                    'left:0',
-                    'top:50%',
-                    'transform:translateY(-50%)',
-                    'z-index:99999',
-                    'width:28px',
-                    'height:54px',
-                    'border:none',
-                    'border-radius:0 10px 10px 0',
-                    'background:linear-gradient(180deg,#2563eb,#0891b2)',
-                    'color:#fff',
-                    'font-size:18px',
-                    'cursor:pointer',
-                    'box-shadow:3px 0 14px rgba(37,99,235,0.45)',
-                    'transition:width 0.18s ease',
-                    'display:flex',
-                    'align-items:center',
-                    'justify-content:center',
-                    'padding:0',
-                ].join(';');
-
-                btn.addEventListener('mouseenter', function(){ btn.style.width='36px'; });
-                btn.addEventListener('mouseleave', function(){ btn.style.width='28px'; });
-
-                btn.addEventListener('click', function() {
-                    try {
-                        var el = window.parent.document.querySelector('[data-testid="stExpandSidebarButton"]');
-                        if (el) el.click();
-                    } catch(e) {
-                        console.warn('Sidebar toggle error:', e);
-                    }
-                });
-
-                var target = window.parent ? window.parent.document.body : document.body;
-                target.appendChild(btn);
-            }
-
-            injectBtn();
-            setTimeout(injectBtn, 600);
-            setTimeout(injectBtn, 1800);
-        })();
-        </script>
-        """,
-        height=0,
-    )
-
 # ── Configuración de la página ────────────────────────────────────────────────
 st.set_page_config(
     page_title="MEDIC-AI · Asistente Médico",
@@ -86,7 +25,6 @@ st.set_page_config(
 
 # ── CSS personalizado ────────────────────────────────────────────────────────
 _load_css()
-_inject_sidebar_toggle()
 
 # ── Asistente (cacheado) ──────────────────────────────────────────────────────
 @st.cache_resource
