@@ -23,8 +23,7 @@ def _inject_sidebar_toggle() -> None:
         <script>
         (function() {
             function injectBtn() {
-                // Avoid duplicates
-                if (document.getElementById('_sb_toggle_btn')) return;
+                if (window.parent.document.getElementById('_sb_toggle_btn')) return;
 
                 var btn = document.createElement('button');
                 btn.id = '_sb_toggle_btn';
@@ -56,46 +55,60 @@ def _inject_sidebar_toggle() -> None:
                 btn.addEventListener('mouseleave', function(){ btn.style.width='28px'; });
 
                 btn.addEventListener('click', function() {
-                    // Try every known Streamlit sidebar-toggle selector
-                    var selectors = [
-                        '[data-testid="stSidebarNavButton"]',
-                        '[data-testid="stSidebarCollapsedControl"]',
-                        '[data-testid="collapsedControl"]',
-                        'button[kind="header"][aria-label*="sidebar"]',
-                        'button[aria-label*="sidebar"]',
-                        'button[aria-label*="Sidebar"]',
-                    ];
-                    // Search in parent frames too
-                    var frames = [window.parent.document, window.document];
-                    var clicked = false;
-                    for (var f = 0; f < frames.length && !clicked; f++) {
+                    try {
+                        var pdoc = window.parent.document;
+                        var clicked = false;
+
+                        // 1. Try known data-testid selectors (never click by position)
+                        var selectors = [
+                            '[data-testid="stSidebarNavCollapseButton"]',
+                            '[data-testid="stSidebarCollapseButton"]',
+                            '[data-testid="stSidebarCollapsedControl"]',
+                            '[data-testid="collapsedControl"]',
+                            '[data-testid="stSidebarNavButton"]',
+                        ];
                         for (var s = 0; s < selectors.length && !clicked; s++) {
-                            var el = frames[f].querySelector(selectors[s]);
+                            var el = pdoc.querySelector(selectors[s]);
                             if (el) { el.click(); clicked = true; }
                         }
-                        // Fallback: look for any button containing an svg near the top-left
+
+                        // 2. Look for buttons whose aria-label / data-testid mention sidebar/nav
                         if (!clicked) {
-                            var btns = frames[f].querySelectorAll('button');
+                            var keywords = ['sidebar', 'navigation', 'sidenav'];
+                            var btns = pdoc.querySelectorAll('button');
                             for (var b = 0; b < btns.length && !clicked; b++) {
-                                var rect = btns[b].getBoundingClientRect();
-                                if (rect.left < 80 && rect.top < 120 && btns[b].querySelector('svg')) {
-                                    btns[b].click();
-                                    clicked = true;
+                                var label = (btns[b].getAttribute('aria-label') || '').toLowerCase();
+                                var tid   = (btns[b].getAttribute('data-testid') || '').toLowerCase();
+                                for (var k = 0; k < keywords.length; k++) {
+                                    if (label.includes(keywords[k]) || tid.includes(keywords[k])) {
+                                        btns[b].click();
+                                        clicked = true;
+                                        break;
+                                    }
                                 }
                             }
                         }
+
+                        // 3. Last resort: first button INSIDE the sidebar (collapse btn)
+                        if (!clicked) {
+                            var sidebar = pdoc.querySelector('[data-testid="stSidebar"]');
+                            if (sidebar) {
+                                var sbBtn = sidebar.querySelector('button');
+                                if (sbBtn) { sbBtn.click(); clicked = true; }
+                            }
+                        }
+                    } catch(e) {
+                        console.warn('Sidebar toggle error:', e);
                     }
                 });
 
-                // Attach to the parent document so it stays outside the iframe
                 var target = window.parent ? window.parent.document.body : document.body;
                 target.appendChild(btn);
             }
 
-            // Run immediately and after a short delay (in case parent isn't ready yet)
             injectBtn();
-            setTimeout(injectBtn, 500);
-            setTimeout(injectBtn, 1500);
+            setTimeout(injectBtn, 600);
+            setTimeout(injectBtn, 1800);
         })();
         </script>
         """,
