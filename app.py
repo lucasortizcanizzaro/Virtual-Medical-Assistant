@@ -68,8 +68,10 @@ html, body,
     border-right: 1px solid var(--border) !important;
     box-shadow: 2px 0 16px rgba(0,0,0,0.06) !important;
 }
-[data-testid="stSidebar"] *:not(button):not([data-testid="stChatInput"] *) { color: var(--text-1) !important; }
-[data-testid="stSidebar"] .stButton > button { color: #ffffff !important; }
+[data-testid="stSidebar"] * { color: var(--text-1) !important; }
+[data-testid="stSidebar"] .stButton button,
+[data-testid="stSidebar"] .stButton button *,
+[data-testid="stSidebar"] .stButton button p { color: #ffffff !important; }
 
 /* ─ Sidebar: logo ────────────────────────────────────────────────────────── */
 .sb-logo {
@@ -284,8 +286,12 @@ html, body,
 }
 
 /* ─ Input de chat ────────────────────────────────────────────────────────── */
-[data-testid="stChatInput"] > div {
+[data-testid="stChatInput"] > div,
+[data-testid="stChatInput"] > div > div,
+[data-testid="stChatInput"] > div > div > div {
     background: #ffffff !important;
+}
+[data-testid="stChatInput"] > div {
     border: 1.5px solid #cbd5e1 !important;
     border-radius: var(--r-lg) !important;
     transition: border-color 0.2s, box-shadow 0.2s !important;
