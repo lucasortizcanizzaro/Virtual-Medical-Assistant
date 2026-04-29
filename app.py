@@ -286,6 +286,16 @@ html, body,
 }
 
 /* ─ Input de chat ────────────────────────────────────────────────────────── */
+/* Barra sticky del fondo */
+[data-testid="stBottom"],
+[data-testid="stBottom"] > div,
+[data-testid="stBottom"] > div > div {
+    background: var(--bg-main) !important;
+    box-shadow: none !important;
+    border-top: 1px solid #e2e8f0 !important;
+}
+/* Todos los divs internos del input */
+[data-testid="stChatInput"],
 [data-testid="stChatInput"] > div,
 [data-testid="stChatInput"] > div > div,
 [data-testid="stChatInput"] > div > div > div {
@@ -303,6 +313,7 @@ html, body,
 }
 [data-testid="stChatInput"] textarea {
     color: var(--text-1) !important;
+    background: #ffffff !important;
     font-size: 0.92rem !important;
 }
 [data-testid="stChatInput"] textarea::placeholder {
