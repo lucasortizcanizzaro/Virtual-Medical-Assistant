@@ -29,13 +29,18 @@ html, body,
 }
 
 /* ─ Ocultar chrome de Streamlit ───────────────────────────────────────────── */
-#MainMenu, footer, header { visibility: hidden !important; }
+#MainMenu, footer { visibility: hidden !important; }
 [data-testid="stToolbar"] { display: none !important; }
 [data-testid="stDecoration"] { display: none !important; }
+[data-testid="stMainMenuButton"] { display: none !important; }
+[data-testid="stBaseButton-header"] { display: none !important; }
+header { background: transparent !important; box-shadow: none !important; }
 
-/* El botón de expandir sidebar vive dentro del header — hay que hacerlo visible */
-[data-testid="stExpandSidebarButton"] {
-    visibility: visible !important;
+/* ─ Botón toggle del sidebar ────────────────────────────────────────────────
+   stExpandSidebarButton = sidebar colapsado → botón para abrirlo
+   stBaseButton-headerNoPadding = sidebar abierto → botón para cerrarlo       */
+[data-testid="stExpandSidebarButton"],
+[data-testid="stBaseButton-headerNoPadding"] {
     position: fixed !important;
     left: 0 !important;
     top: 50% !important;
@@ -52,13 +57,18 @@ html, body,
     justify-content: center !important;
     cursor: pointer !important;
     padding: 0 !important;
+    visibility: visible !important;
+    opacity: 1 !important;
     transition: width 0.18s ease !important;
 }
-[data-testid="stExpandSidebarButton"]:hover {
+[data-testid="stExpandSidebarButton"]:hover,
+[data-testid="stBaseButton-headerNoPadding"]:hover {
     width: 36px !important;
 }
 [data-testid="stExpandSidebarButton"] svg,
-[data-testid="stExpandSidebarButton"] span {
+[data-testid="stExpandSidebarButton"] span,
+[data-testid="stBaseButton-headerNoPadding"] svg,
+[data-testid="stBaseButton-headerNoPadding"] span {
     color: #ffffff !important;
     fill: #ffffff !important;
     visibility: visible !important;
