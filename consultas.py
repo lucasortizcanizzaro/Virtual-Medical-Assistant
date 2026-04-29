@@ -42,6 +42,14 @@ def _generar_embedding(client, texto: str) -> list:
     return result.embeddings[0].values
 
 
+def _generar_embeddings_sintomas(client, sintomas_json: list) -> list:
+    """Añade el vector embedding a cada síntoma extraído para la búsqueda unificada."""
+    return [
+        {"nombre": item["nombre"], "intensidad": item["intensidad"], "vector": _generar_embedding(client, item["nombre"])}
+        for item in sintomas_json
+    ]
+
+
 def _generar_con_reintento(client, model: str, contents: str, config, max_intentos: int = 3) -> str:
     """Llama a generate_content con reintento exponencial ante errores 429 y 500."""
     espera = 5  # segundos iniciales de espera
@@ -171,11 +179,24 @@ Si hace ambas cosas → saluda y explica tu funcionalidad en el mismo mensaje.
 No incluyas diagnósticos ni información médica específica en esta respuesta.""",
         )
 
+        # Configuración del extractor de síntomas con intensidad
+        self.config_extractor_sintomas = types.GenerateContentConfig(
+            system_instruction="""Extraes síntomas y su intensidad del texto de un paciente.
+
+Reglas de intensidad (I):
+- 'un poco', 'leve', 'apenas' → I = 0.7
+- Sin adjetivos o 'tengo...' → I = 1.0
+- 'mucho', 'muy', 'fuerte', 'muchísimo' → I = 1.35
+
+Devuelve ÚNICAMENTE una lista JSON con el formato: [{"nombre": "Sintoma", "intensidad": I}]
+Sin texto extra, sin bloques de código markdown. Si no hay síntomas, devuelve: []""",
+        )
+
     def preguntar(self, texto_usuario: str, historial: list = None) -> str:
         # ── Paso 0: Clasificar intención ─────────────────────────────────────
         try:
             intencion = _generar_con_reintento(
-                self.client, "gemini-2.5-flash", texto_usuario, self.config_clasificador
+                self.client, "gemini-3.1-flash-lite-preview", texto_usuario, self.config_clasificador
             ).strip().upper()
         except Exception:
             intencion = "CONSULTA"  # ante cualquier fallo, continuar con el flujo médico
@@ -183,7 +204,7 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
         if intencion in ("SALUDO", "FUNCIONALIDAD", "SALUDO_FUNC"):
             try:
                 return _generar_con_reintento(
-                    self.client, "gemini-2.5-flash", texto_usuario, self.config_conversacional
+                    self.client, "gemini-3.1-flash-lite-preview", texto_usuario, self.config_conversacional
                 )
             except Exception as e:
                 return str(e)
@@ -205,23 +226,27 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
         else:
             contexto = texto_normalizado
 
-        # --- RUTA 1: Búsqueda semántica por vector ---
-        # Genera el embedding del texto del usuario y busca síntomas similares en Neo4j.
-        # Si la similitud es suficientemente alta (≥0.75), usa estos resultados directamente.
+        # --- RUTA 1: Búsqueda unificada (vector × intensidad por síntoma) ---
+        # Extrae síntomas + intensidades del texto, genera un embedding por síntoma
+        # y ejecuta una sola query que pondera sensibilidad × intensidad × prevalencia.
         datos = []
         try:
-            vector = _generar_embedding(self.client, texto_usuario)
-            candidatos = self.db.buscar_por_vector("sintoma_embeddings", vector, top_k=5)
-            # Filtrar solo resultados con alta similitud semántica
-            datos = [d for d in candidatos if d.get("relevancia", 0) >= 0.75]
+            import json as _json
+            sintomas_json_str = _generar_con_reintento(
+                self.client, "gemini-3.1-flash-lite-preview", texto_usuario, self.config_extractor_sintomas
+            ).strip()
+            sintomas_json = _json.loads(sintomas_json_str)
+            if sintomas_json:
+                sintomas_con_vector = _generar_embeddings_sintomas(self.client, sintomas_json)
+                datos = self.db.buscar_con_intensidad_vectorial(sintomas_con_vector)
         except Exception:
-            datos = []  # Si falla el embedding, continúa con Text-to-Cypher
+            datos = []  # Si falla, continúa con Text-to-Cypher
 
         # --- RUTA 2: Text-to-Cypher (fallback si el vector no dio resultados) ---
         if not datos:
             try:
                 cypher_query = _generar_con_reintento(
-                    self.client, "gemini-2.5-flash", contexto, self.config_traductor
+                    self.client, "gemini-3.1-flash-lite-preview", contexto, self.config_traductor
                 ).strip()
             except Exception as e:
                 return str(e)
@@ -250,11 +275,11 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
         # Paso 3: Evaluar qué enfermedad se adecúa mejor al paciente
         prompt_evaluacion = f"""
 Consulta del paciente: "{texto_usuario}"
-Datos encontrados en la base de datos: {datos}
+Datos encontrados en la base de datos (ordenados por score de probabilidad ponderada): {datos}
 """
         try:
             evaluacion = _generar_con_reintento(
-                self.client, "gemini-2.5-flash", prompt_evaluacion, self.config_evaluador
+                self.client, "gemini-3.1-flash-lite-preview", prompt_evaluacion, self.config_evaluador
             ).strip()
         except Exception as e:
             return str(e)
@@ -280,7 +305,7 @@ Redacta una respuesta clara y amigable basada ÚNICAMENTE en esos datos.
 """
         try:
             return _generar_con_reintento(
-                self.client, "gemini-2.5-flash", prompt_redaccion, self.config_redactor
+                self.client, "gemini-3.1-flash-lite-preview", prompt_redaccion, self.config_redactor
             )
         except Exception as e:
             return str(e)

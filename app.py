@@ -11,8 +11,8 @@ def _logo_b64() -> str:
 
 # ── Configuración de la página ────────────────────────────────────────────────
 st.set_page_config(
-    page_title="MediAI · Asistente Médico",
-    page_icon="🩺",
+    page_title="MEDIC-AI · Asistente Médico",
+    page_icon="⚕️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -326,6 +326,27 @@ html, body,
 /* ─ Spinner ──────────────────────────────────────────────────────────────── */
 [data-testid="stSpinner"] > div {
     border-top-color: var(--teal) !important;
+}
+
+/* ─ Botón para abrir sidebar cuando está colapsado ──────────────────────── */
+[data-testid="collapsedControl"] {
+    background: linear-gradient(135deg, #2563eb, #0891b2) !important;
+    border-radius: 0 var(--r-md) var(--r-md) 0 !important;
+    width: 28px !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
+    box-shadow: 3px 0 14px rgba(37,99,235,0.35) !important;
+    border: none !important;
+    opacity: 1 !important;
+    transition: width 0.2s ease, box-shadow 0.2s ease !important;
+}
+[data-testid="collapsedControl"]:hover {
+    width: 34px !important;
+    box-shadow: 4px 0 20px rgba(37,99,235,0.50) !important;
+}
+[data-testid="collapsedControl"] svg {
+    fill: #ffffff !important;
+    stroke: #ffffff !important;
 }
 
 /* ─ Scrollbar ────────────────────────────────────────────────────────────── */
