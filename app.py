@@ -56,47 +56,8 @@ def _inject_sidebar_toggle() -> None:
 
                 btn.addEventListener('click', function() {
                     try {
-                        var pdoc = window.parent.document;
-                        var clicked = false;
-
-                        // 1. Try known data-testid selectors (never click by position)
-                        var selectors = [
-                            '[data-testid="stSidebarNavCollapseButton"]',
-                            '[data-testid="stSidebarCollapseButton"]',
-                            '[data-testid="stSidebarCollapsedControl"]',
-                            '[data-testid="collapsedControl"]',
-                            '[data-testid="stSidebarNavButton"]',
-                        ];
-                        for (var s = 0; s < selectors.length && !clicked; s++) {
-                            var el = pdoc.querySelector(selectors[s]);
-                            if (el) { el.click(); clicked = true; }
-                        }
-
-                        // 2. Look for buttons whose aria-label / data-testid mention sidebar/nav
-                        if (!clicked) {
-                            var keywords = ['sidebar', 'navigation', 'sidenav'];
-                            var btns = pdoc.querySelectorAll('button');
-                            for (var b = 0; b < btns.length && !clicked; b++) {
-                                var label = (btns[b].getAttribute('aria-label') || '').toLowerCase();
-                                var tid   = (btns[b].getAttribute('data-testid') || '').toLowerCase();
-                                for (var k = 0; k < keywords.length; k++) {
-                                    if (label.includes(keywords[k]) || tid.includes(keywords[k])) {
-                                        btns[b].click();
-                                        clicked = true;
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-
-                        // 3. Last resort: first button INSIDE the sidebar (collapse btn)
-                        if (!clicked) {
-                            var sidebar = pdoc.querySelector('[data-testid="stSidebar"]');
-                            if (sidebar) {
-                                var sbBtn = sidebar.querySelector('button');
-                                if (sbBtn) { sbBtn.click(); clicked = true; }
-                            }
-                        }
+                        var el = window.parent.document.querySelector('[data-testid="stExpandSidebarButton"]');
+                        if (el) el.click();
                     } catch(e) {
                         console.warn('Sidebar toggle error:', e);
                     }
