@@ -145,7 +145,50 @@ médicas de forma clara y amigable para pacientes no especializados.
 Responde siempre en español y sugiere consultar a un médico para diagnósticos definitivos.""",
         )
 
+        # Configuración del modelo 0a: Clasifica la intención del mensaje
+        self.config_clasificador = types.GenerateContentConfig(
+            system_instruction="""Clasificas la intención de mensajes dirigidos a un asistente médico virtual.
+
+Devuelve ÚNICAMENTE una de estas etiquetas, sin texto adicional:
+- SALUDO           → el mensaje es solo un saludo o expresión social (hola, buenas, gracias, etc.)
+- FUNCIONALIDAD    → el mensaje pregunta qué puede hacer, cómo funciona o para qué sirve el asistente
+- SALUDO_FUNC      → el mensaje combina saludo y pregunta por funcionalidad
+- CONSULTA         → el mensaje describe síntomas, enfermedades, medicamentos u otra consulta médica
+
+Si el mensaje mezcla saludo/funcionalidad CON una consulta médica, devuelve CONSULTA.""",
+        )
+
+        # Configuración del modelo 0b: Responde saludos y preguntas de funcionalidad
+        self.config_conversacional = types.GenerateContentConfig(
+            system_instruction="""Eres MEDIC-AI, un asistente de orientación médica con inteligencia artificial.
+Respondes en español, de forma cálida y concisa.
+
+Si el usuario saluda → devuelve un saludo cordial y preséntate brevemente.
+Si pregunta por tu funcionalidad → explica que podés relacionar síntomas con posibles enfermedades,
+  sugerir la especialidad médica adecuada y orientar sobre nivel de gravedad, siempre recordando que
+  no reemplazás a un médico certificado.
+Si hace ambas cosas → saluda y explica tu funcionalidad en el mismo mensaje.
+No incluyas diagnósticos ni información médica específica en esta respuesta.""",
+        )
+
     def preguntar(self, texto_usuario: str, historial: list = None) -> str:
+        # ── Paso 0: Clasificar intención ─────────────────────────────────────
+        try:
+            intencion = _generar_con_reintento(
+                self.client, "gemini-2.5-flash", texto_usuario, self.config_clasificador
+            ).strip().upper()
+        except Exception:
+            intencion = "CONSULTA"  # ante cualquier fallo, continuar con el flujo médico
+
+        if intencion in ("SALUDO", "FUNCIONALIDAD", "SALUDO_FUNC"):
+            try:
+                return _generar_con_reintento(
+                    self.client, "gemini-2.5-flash", texto_usuario, self.config_conversacional
+                )
+            except Exception as e:
+                return str(e)
+
+        # ── Flujo médico (solo si la intención es CONSULTA) ──────────────────
         # Normalizar input del usuario: quitar tildes para asegurar el match
         texto_normalizado = _sin_tildes(texto_usuario)
 
