@@ -68,7 +68,8 @@ html, body,
     border-right: 1px solid var(--border) !important;
     box-shadow: 2px 0 16px rgba(0,0,0,0.06) !important;
 }
-[data-testid="stSidebar"] * { color: var(--text-1) !important; }
+[data-testid="stSidebar"] *:not(button):not([data-testid="stChatInput"] *) { color: var(--text-1) !important; }
+[data-testid="stSidebar"] .stButton > button { color: #ffffff !important; }
 
 /* ─ Sidebar: logo ────────────────────────────────────────────────────────── */
 .sb-logo {
@@ -229,6 +230,7 @@ html, body,
 
 /* ─ Mensajes del chat ────────────────────────────────────────────────────── */
 [data-testid="stChatMessage"] {
+    background: transparent !important;
     padding: 6px 2px !important;
     gap: 14px !important;
 }
