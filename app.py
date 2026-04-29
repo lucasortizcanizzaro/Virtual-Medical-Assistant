@@ -301,6 +301,9 @@ html, body,
 [data-testid="stChatInput"] > div > div > div {
     background: #ffffff !important;
 }
+[data-testid="stChatInput"]  {
+    border-radius: var(--r-lg) !important;
+}   
 [data-testid="stChatInput"] > div {
     border: 1.5px solid #cbd5e1 !important;
     border-radius: var(--r-lg) !important;
