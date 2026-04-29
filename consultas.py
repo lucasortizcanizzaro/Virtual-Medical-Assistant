@@ -105,7 +105,26 @@ Reglas estrictas:
 4. NUNCA generes operaciones de escritura (CREATE, DELETE, MERGE, SET, REMOVE, DROP). Solo consultas de lectura.""",
         )
 
-        # Configuración del modelo 2: Convierte datos crudos en respuesta humana
+        # Configuración del modelo 2: Evalúa qué enfermedad se adecúa mejor al paciente
+        self.config_evaluador = types.GenerateContentConfig(
+            system_instruction="""Eres un evaluador médico. Recibes la consulta de un paciente y datos de enfermedades de una base de datos.
+
+Tu tarea es determinar qué enfermedad se adecúa mejor a lo que describe el paciente.
+
+Reglas estrictas:
+1. Si los datos apuntan claramente a UNA enfermedad (o el contexto permite elegir), responde exactamente:
+   DECISION: <nombre exacto de la enfermedad tal como aparece en los datos>
+
+2. Si hay VARIAS enfermedades posibles y no hay suficiente información para decidir, responde exactamente:
+   PREGUNTA: <una pregunta corta y específica que pida UN síntoma clave que permita diferenciarlas>
+
+3. Orden de preferencia de gravedad cuando el paciente no la especifica: leve > moderada > grave > crítica.
+   En caso de duda, siempre muestra la menos grave.
+
+4. Devuelve ÚNICAMENTE el prefijo y el contenido. Sin texto adicional.""",
+        )
+
+        # Configuración del modelo 3: Convierte datos crudos en respuesta humana
         self.config_redactor = types.GenerateContentConfig(
             system_instruction="""Eres un asistente médico empático. Explica resultados de bases de datos
 médicas de forma clara y amigable para pacientes no especializados.
@@ -160,10 +179,34 @@ Responde siempre en español y sugiere consultar a un médico para diagnósticos
         if not datos:
             return f"Sin resultados. Query ejecutada:\n```\n{cypher_query}\n```"
 
-        # Paso 3: IA convierte los datos crudos en una respuesta amigable
+        # Paso 3: Evaluar qué enfermedad se adecúa mejor al paciente
+        prompt_evaluacion = f"""
+Consulta del paciente: "{texto_usuario}"
+Datos encontrados en la base de datos: {datos}
+"""
+        try:
+            evaluacion = _generar_con_reintento(
+                self.client, "gemini-2.5-flash", prompt_evaluacion, self.config_evaluador
+            ).strip()
+        except Exception as e:
+            return str(e)
+
+        # Si el evaluador pide más info, devolver la pregunta directamente al usuario
+        if evaluacion.startswith("PREGUNTA:"):
+            return evaluacion[len("PREGUNTA:"):].strip()
+
+        # Si tomó una decisión, filtrar los datos a esa enfermedad
+        if evaluacion.startswith("DECISION:"):
+            nombre_seleccionado = evaluacion[len("DECISION:"):].strip()
+            datos_filtrados = [d for d in datos if nombre_seleccionado.lower() in str(d).lower()]
+            datos_para_redactor = datos_filtrados if datos_filtrados else datos
+        else:
+            datos_para_redactor = datos
+
+        # Paso 4: IA convierte los datos seleccionados en una respuesta amigable
         prompt_redaccion = f"""
 El usuario realizó esta consulta: "{texto_usuario}"
-Los datos encontrados en la base de datos médica son: {datos}
+Los datos encontrados en la base de datos médica son: {datos_para_redactor}
 
 Redacta una respuesta clara y amigable basada ÚNICAMENTE en esos datos.
 """
