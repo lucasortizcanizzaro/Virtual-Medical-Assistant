@@ -329,22 +329,62 @@ html, body,
 }
 
 /* ─ Botón para abrir sidebar cuando está colapsado ──────────────────────── */
-[data-testid="collapsedControl"] {
-    background: linear-gradient(135deg, #2563eb, #0891b2) !important;
-    border-radius: 0 var(--r-md) var(--r-md) 0 !important;
-    width: 28px !important;
+[data-testid="collapsedControl"],
+[data-testid="stSidebarCollapsedControl"] {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    position: fixed !important;
+    left: 0 !important;
     top: 50% !important;
     transform: translateY(-50%) !important;
-    box-shadow: 3px 0 14px rgba(37,99,235,0.35) !important;
+    width: 26px !important;
+    height: 52px !important;
+    background: linear-gradient(180deg, #2563eb, #0891b2) !important;
+    border-radius: 0 var(--r-md) var(--r-md) 0 !important;
+    box-shadow: 3px 0 14px rgba(37,99,235,0.40) !important;
     border: none !important;
     opacity: 1 !important;
-    transition: width 0.2s ease, box-shadow 0.2s ease !important;
+    z-index: 999 !important;
+    cursor: pointer !important;
+    transition: width 0.18s ease, box-shadow 0.18s ease !important;
 }
-[data-testid="collapsedControl"]:hover {
+[data-testid="collapsedControl"]:hover,
+[data-testid="stSidebarCollapsedControl"]:hover {
     width: 34px !important;
-    box-shadow: 4px 0 20px rgba(37,99,235,0.50) !important;
+    box-shadow: 4px 0 20px rgba(37,99,235,0.55) !important;
 }
-[data-testid="collapsedControl"] svg {
+[data-testid="collapsedControl"] button,
+[data-testid="stSidebarCollapsedControl"] button {
+    background: transparent !important;
+    border: none !important;
+    width: 100% !important;
+    height: 100% !important;
+    cursor: pointer !important;
+}
+[data-testid="collapsedControl"] svg,
+[data-testid="stSidebarCollapsedControl"] svg {
+    fill: #ffffff !important;
+    stroke: #ffffff !important;
+    color: #ffffff !important;
+}
+
+/* ─ Botón de enviar en el chat input ─────────────────────────────────────── */
+[data-testid="stChatInputSubmitButton"] button {
+    background: linear-gradient(135deg, #2563eb, #3b82f6) !important;
+    border-radius: var(--r-sm) !important;
+    border: none !important;
+    transition: opacity 0.18s ease, transform 0.18s ease !important;
+}
+[data-testid="stChatInputSubmitButton"] button:disabled {
+    background: #cbd5e1 !important;
+    opacity: 0.55 !important;
+}
+[data-testid="stChatInputSubmitButton"] button:not(:disabled):hover {
+    opacity: 0.88 !important;
+    transform: scale(1.07) !important;
+}
+[data-testid="stChatInputSubmitButton"] svg {
     fill: #ffffff !important;
     stroke: #ffffff !important;
 }
