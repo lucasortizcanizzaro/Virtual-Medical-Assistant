@@ -111,7 +111,12 @@ Reglas estrictas:
 2. Para comparaciones de texto SIEMPRE normaliza ambos lados quitando tildes y usando minúsculas:
    {_norm("n.nombre")} CONTAINS {_norm("'valor'")}
 3. Si la pregunta no puede responderse con este esquema, devuelve exactamente: error
-4. NUNCA generes operaciones de escritura (CREATE, DELETE, MERGE, SET, REMOVE, DROP). Solo consultas de lectura.""",
+4. NUNCA generes operaciones de escritura (CREATE, DELETE, MERGE, SET, REMOVE, DROP). Solo consultas de lectura.
+
+Contexto del flujo:
+- Un agente evaluador analiza los datos que devuelves para determinar qué enfermedad corresponde al paciente.
+- Si el evaluador no tiene suficiente información para decidir, le hace UNA pregunta al paciente pidiendo un síntoma adicional.
+- Cuando el paciente responde esa pregunta, el historial lo incluye. En ese caso, combiná TODOS los síntomas mencionados en la conversación para generar una query más específica que ayude al evaluador a tomar la decisión.""",
         )
 
         # Configuración del modelo 2: Evalúa qué enfermedad se adecúa mejor al paciente
