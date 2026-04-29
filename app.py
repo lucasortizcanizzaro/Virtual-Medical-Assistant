@@ -15,6 +15,93 @@ def _load_css() -> None:
     css = (_ASSETS / "style.css").read_text(encoding="utf-8")
     st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
 
+def _inject_sidebar_toggle() -> None:
+    """Inject a real floating button that triggers Streamlit's native sidebar toggle."""
+    import streamlit.components.v1 as components
+    components.html(
+        """
+        <script>
+        (function() {
+            function injectBtn() {
+                // Avoid duplicates
+                if (document.getElementById('_sb_toggle_btn')) return;
+
+                var btn = document.createElement('button');
+                btn.id = '_sb_toggle_btn';
+                btn.innerHTML = '&#9776;';
+                btn.title = 'Abrir / cerrar panel';
+                btn.style.cssText = [
+                    'position:fixed',
+                    'left:0',
+                    'top:50%',
+                    'transform:translateY(-50%)',
+                    'z-index:99999',
+                    'width:28px',
+                    'height:54px',
+                    'border:none',
+                    'border-radius:0 10px 10px 0',
+                    'background:linear-gradient(180deg,#2563eb,#0891b2)',
+                    'color:#fff',
+                    'font-size:18px',
+                    'cursor:pointer',
+                    'box-shadow:3px 0 14px rgba(37,99,235,0.45)',
+                    'transition:width 0.18s ease',
+                    'display:flex',
+                    'align-items:center',
+                    'justify-content:center',
+                    'padding:0',
+                ].join(';');
+
+                btn.addEventListener('mouseenter', function(){ btn.style.width='36px'; });
+                btn.addEventListener('mouseleave', function(){ btn.style.width='28px'; });
+
+                btn.addEventListener('click', function() {
+                    // Try every known Streamlit sidebar-toggle selector
+                    var selectors = [
+                        '[data-testid="stSidebarNavButton"]',
+                        '[data-testid="stSidebarCollapsedControl"]',
+                        '[data-testid="collapsedControl"]',
+                        'button[kind="header"][aria-label*="sidebar"]',
+                        'button[aria-label*="sidebar"]',
+                        'button[aria-label*="Sidebar"]',
+                    ];
+                    // Search in parent frames too
+                    var frames = [window.parent.document, window.document];
+                    var clicked = false;
+                    for (var f = 0; f < frames.length && !clicked; f++) {
+                        for (var s = 0; s < selectors.length && !clicked; s++) {
+                            var el = frames[f].querySelector(selectors[s]);
+                            if (el) { el.click(); clicked = true; }
+                        }
+                        // Fallback: look for any button containing an svg near the top-left
+                        if (!clicked) {
+                            var btns = frames[f].querySelectorAll('button');
+                            for (var b = 0; b < btns.length && !clicked; b++) {
+                                var rect = btns[b].getBoundingClientRect();
+                                if (rect.left < 80 && rect.top < 120 && btns[b].querySelector('svg')) {
+                                    btns[b].click();
+                                    clicked = true;
+                                }
+                            }
+                        }
+                    }
+                });
+
+                // Attach to the parent document so it stays outside the iframe
+                var target = window.parent ? window.parent.document.body : document.body;
+                target.appendChild(btn);
+            }
+
+            // Run immediately and after a short delay (in case parent isn't ready yet)
+            injectBtn();
+            setTimeout(injectBtn, 500);
+            setTimeout(injectBtn, 1500);
+        })();
+        </script>
+        """,
+        height=0,
+    )
+
 # ── Configuración de la página ────────────────────────────────────────────────
 st.set_page_config(
     page_title="MEDIC-AI · Asistente Médico",
@@ -25,6 +112,7 @@ st.set_page_config(
 
 # ── CSS personalizado ────────────────────────────────────────────────────────
 _load_css()
+_inject_sidebar_toggle()
 
 # ── Asistente (cacheado) ──────────────────────────────────────────────────────
 @st.cache_resource

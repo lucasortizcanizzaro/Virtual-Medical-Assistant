@@ -304,47 +304,6 @@ html, body,
     border-top-color: var(--teal) !important;
 }
 
-/* ─ Botón para abrir sidebar cuando está colapsado ──────────────────────── */
-[data-testid="collapsedControl"],
-[data-testid="stSidebarCollapsedControl"] {
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    position: fixed !important;
-    left: 0 !important;
-    top: 50% !important;
-    transform: translateY(-50%) !important;
-    width: 26px !important;
-    height: 52px !important;
-    background: linear-gradient(180deg, #2563eb, #0891b2) !important;
-    border-radius: 0 var(--r-md) var(--r-md) 0 !important;
-    box-shadow: 3px 0 14px rgba(37,99,235,0.40) !important;
-    border: none !important;
-    opacity: 1 !important;
-    z-index: 999 !important;
-    cursor: pointer !important;
-    transition: width 0.18s ease, box-shadow 0.18s ease !important;
-}
-[data-testid="collapsedControl"]:hover,
-[data-testid="stSidebarCollapsedControl"]:hover {
-    width: 34px !important;
-    box-shadow: 4px 0 20px rgba(37,99,235,0.55) !important;
-}
-[data-testid="collapsedControl"] button,
-[data-testid="stSidebarCollapsedControl"] button {
-    background: transparent !important;
-    border: none !important;
-    width: 100% !important;
-    height: 100% !important;
-    cursor: pointer !important;
-}
-[data-testid="collapsedControl"] svg,
-[data-testid="stSidebarCollapsedControl"] svg {
-    fill: #ffffff !important;
-    stroke: #ffffff !important;
-    color: #ffffff !important;
-}
-
 /* ─ Botón de enviar en el chat input ─────────────────────────────────────── */
 [data-testid="stChatInputSubmitButton"] button {
     background: linear-gradient(135deg, #2563eb, #3b82f6) !important;
