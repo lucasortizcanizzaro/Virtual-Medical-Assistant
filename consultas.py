@@ -258,15 +258,47 @@ Usa lenguaje simple, empÃ¡tico, sin tecnicismos. Responde en espaÃ±ol.
 Siempre recuerda que esto es solo orientaciÃ³n y que debe consultar a un mÃ©dico.""",
         )
 
+    # Palabras clave médicas: si alguna aparece, la consulta no es un saludo puro
+    _KW_MEDICOS = re.compile(
+        r'\b(dolor|duele|tengo|siento|fiebre|tos|nausea|nauseas|vomito|vomitos|'
+        r'mareo|mareos|cansancio|fatiga|sangre|sangrado|picazon|picazón|'
+        r'ardor|inflamacion|inflamación|hinchazón|hinchazón|diarrea|estreñimiento|'
+        r'cabeza|garganta|pecho|abdomen|espalda|pierna|brazo|ojo|oido|'
+        r'sintoma|síntoma|enfermedad|diagnostico|diagnóstico|medicamento|'
+        r'alergia|gripe|resfrio|resfrío|infeccion|infección|rash|sarpullido)\b',
+        re.IGNORECASE,
+    )
+    _SALUDOS = re.compile(
+        r'^\s*(hola|buenos?\s+d[ií]as?|buenas?\s+tardes?|buenas?\s+noches?|'
+        r'hi|hey|saludos?|gracias|muchas\s+gracias|thank\s+you|thanks|'
+        r'adios|adi[oó]s|hasta\s+luego|chau|bye|ok|okay|dale|perfecto|'
+        r'entendido|de\s+nada|por\s+favor)[!?.,\s]*$',
+        re.IGNORECASE,
+    )
+
     def preguntar(self, texto_usuario: str, historial: list = None,
                   contexto_diferencial: dict = None) -> tuple:
         """Procesa la consulta del usuario.
         Retorna (respuesta: str, nuevo_contexto_diferencial: dict | None).
-        nuevo_contexto_diferencial es None cuando no hay diagnÃ³stico diferencial activo.
+        nuevo_contexto_diferencial es None cuando no hay diagnóstico diferencial activo.
         """
         import json as _json
 
+        _timing_log.clear()
         t_inicio = time.time()
+
+        # ── Ruta ultra-rápida: saludo sin palabras médicas → 0 llamadas LLM ──
+        texto_strip = texto_usuario.strip()
+        if self._SALUDOS.match(texto_strip) and not self._KW_MEDICOS.search(texto_strip):
+            _log("[preguntar] saludo detectado por regex: %.3fs | TOTAL: %.3fs (0 LLM calls)",
+                 time.time() - t_inicio, time.time() - t_inicio)
+            return (
+                "¡Hola! Soy **MEDIC-AI**, tu asistente de orientación médica. "
+                "Podés describirme tus síntomas y te ayudaré a identificar posibles causas, "
+                "la especialidad médica recomendada y el nivel de gravedad. "
+                "Recordá que no reemplazo a un médico certificado. ¿En qué te puedo ayudar?",
+                None,
+            )
 
         # â”€â”€ Paso 0+1: Clasificar intenciÃ³n y extraer sÃ­ntomas (llamada unificada) â”€â”€
         intencion = "CONSULTA"
