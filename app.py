@@ -79,7 +79,7 @@ with st.sidebar:
 
     st.markdown('<div class="sb-label">Conversación</div>', unsafe_allow_html=True)
 
-    if st.button("＋  Nueva consulta"):
+    if st.button("+  Nueva consulta"):
         st.session_state.mensajes = [
             {
                 "role": "assistant",

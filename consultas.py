@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 import os
 import re
 import time
@@ -11,7 +11,7 @@ from google.genai.errors import ClientError, ServerError
 from obtenerSintomas import MedicoDB
 
 # En local carga el .env; en Streamlit Cloud no existe ese archivo
-# y las credenciales se leen desde st.secrets (ver mÃ¡s abajo).
+# y las credenciales se leen desde st.secrets (ver más abajo).
 load_dotenv()
 
 # Buffer de timing: se limpia al inicio de cada llamada a preguntar()
@@ -26,7 +26,7 @@ def _log(msg, *args):
 # Modelo LLM utilizado en todos los agentes
 GEMINI_MODEL = "gemini-3.1-flash-lite-preview"
 
-# PatrÃ³n que detecta operaciones de escritura en Cypher
+# Patrón que detecta operaciones de escritura en Cypher
 _CYPHER_WRITE_PATTERN = re.compile(
     r'\b(create|delete|detach|merge|set|remove|drop|call)\b',
     re.IGNORECASE
@@ -34,7 +34,7 @@ _CYPHER_WRITE_PATTERN = re.compile(
 
 
 def _sin_tildes(texto: str) -> str:
-    """Elimina tildes y diacrÃ­ticos. Ej: 'diarrÃ©a' â†’ 'diarrea'."""
+    """Elimina tildes y diacríticos. Ej: 'diarréa' → 'diarrea'."""
     return ''.join(
         c for c in unicodedata.normalize('NFD', texto)
         if unicodedata.category(c) != 'Mn'
@@ -56,7 +56,7 @@ def _generar_embedding(client, texto: str) -> list:
 
 
 def _generar_embeddings_sintomas(client, sintomas_json: list) -> list:
-    """AÃ±ade el vector embedding a cada sÃ­ntoma extraÃ­do para la bÃºsqueda unificada."""
+    """Añade el vector embedding a cada síntoma extraído para la búsqueda unificada."""
     return [
         {"nombre": item["nombre"], "intensidad": item["intensidad"], "vector": _generar_embedding(client, item["nombre"])}
         for item in sintomas_json
@@ -74,27 +74,27 @@ def _generar_con_reintento(client, model: str, contents: str, config, max_intent
                 config=config,
             ).text
         except ServerError:
-            # Error 500 del servidor de Gemini â€” suele ser transitorio
+            # Error 500 del servidor de Gemini — suele ser transitorio
             if intento < max_intentos - 1:
                 time.sleep(espera)
                 espera *= 2
                 continue
-            raise RuntimeError("El servidor de Gemini no estÃ¡ disponible en este momento. Intenta de nuevo en unos segundos.")
+            raise RuntimeError("El servidor de Gemini no está disponible en este momento. Intenta de nuevo en unos segundos.")
         except ClientError as e:
             if e.code == 429 and intento < max_intentos - 1:
                 time.sleep(espera)
                 espera *= 2  # backoff exponencial: 5s, 10s, 20s
                 continue
             elif e.code == 429:
-                raise RuntimeError("LÃ­mite de solicitudes a la API de Gemini alcanzado. Espera unos segundos e intenta de nuevo.")
+                raise RuntimeError("Límite de solicitudes a la API de Gemini alcanzado. Espera unos segundos e intenta de nuevo.")
             elif e.code in (401, 403):
-                raise RuntimeError("API key de Gemini invÃ¡lida o sin permisos. Verifica tu configuraciÃ³n.")
+                raise RuntimeError("API key de Gemini inválida o sin permisos. Verifica tu configuración.")
             else:
                 raise
 
 
 def _seleccionar_sintoma_fallback(sintomas_por_enf: dict, ya_vistos: set) -> str:
-    """Elige el sÃ­ntoma con mayor poder diferenciador (ni en todas ni en ninguna candidata)."""
+    """Elige el síntoma con mayor poder diferenciador (ni en todas ni en ninguna candidata)."""
     conteo: dict[str, int] = {}
     for syms in sintomas_por_enf.values():
         for s in syms:
@@ -102,9 +102,9 @@ def _seleccionar_sintoma_fallback(sintomas_por_enf: dict, ya_vistos: set) -> str
             if key not in ya_vistos:
                 conteo[s] = conteo.get(s, 0) + 1
     if not conteo:
-        return "algÃºn sÃ­ntoma adicional"
+        return "algún síntoma adicional"
     total = len(sintomas_por_enf)
-    # El mejor diferenciador estÃ¡ en ~mitad de las enfermedades
+    # El mejor diferenciador está en ~mitad de las enfermedades
     mejor = min(conteo.items(), key=lambda x: abs(x[1] - total / 2))
     return mejor[0]
 
@@ -120,23 +120,23 @@ def _get_secret(key: str) -> str:
 
 class AsistenteMedico:
     def __init__(self):
-        # Cliente Ãºnico de la nueva SDK
+        # Cliente único de la nueva SDK
         self.client = genai.Client(api_key=_get_secret("GEMINI_API_KEY"))
 
-        # La conexiÃ³n a Neo4j se configura desde secrets (Cloud) o .env (local)
+        # La conexión a Neo4j se configura desde secrets (Cloud) o .env (local)
         self.db = MedicoDB(
             uri=_get_secret("NEO4J_URI") or "bolt://localhost:7687",
             user=_get_secret("NEO4J_USERNAME") or "neo4j",
             password=_get_secret("NEO4J_PASSWORD"),
         )
 
-        # Macro de normalizaciÃ³n reutilizable en el system_instruction
+        # Macro de normalización reutilizable en el system_instruction
         _norm = lambda campo: (
             f"replace(replace(replace(replace(replace(replace(replace("
-            f"toLower({campo}),'Ã¡','a'),'Ã©','e'),'Ã­','i'),'Ã³','o'),'Ãº','u'),'Ã±','n'),'Ã¼','u')"
+            f"toLower({campo}),'á','a'),'é','e'),'í','i'),'ó','o'),'ú','u'),'ñ','n'),'ü','u')"
         )
 
-        # ConfiguraciÃ³n del modelo 1: Traduce lenguaje natural â†’ Cypher
+        # Configuración del modelo 1: Traduce lenguaje natural → Cypher
         self.config_traductor = types.GenerateContentConfig(
             system_instruction=f"""Eres un experto en Neo4j. Traduces lenguaje natural a consultas Cypher.
 Esquema de la base de datos:
@@ -144,118 +144,118 @@ Esquema de la base de datos:
 - Relaciones: (Enfermedad)-[:GENERA]->(Sintoma), (Especialidad)-[:TRATA]->(Enfermedad)
 
 Reglas estrictas:
-1. Devuelve SOLO el cÃ³digo Cypher. Sin explicaciones ni bloques de cÃ³digo markdown.
-2. Para comparaciones de texto SIEMPRE normaliza ambos lados quitando tildes y usando minÃºsculas:
+1. Devuelve SOLO el código Cypher. Sin explicaciones ni bloques de código markdown.
+2. Para comparaciones de texto SIEMPRE normaliza ambos lados quitando tildes y usando minúsculas:
    {_norm("n.nombre")} CONTAINS {_norm("'valor'")}
 3. Si la pregunta no puede responderse con este esquema, devuelve exactamente: error
 4. NUNCA generes operaciones de escritura (CREATE, DELETE, MERGE, SET, REMOVE, DROP). Solo consultas de lectura.
 
 Contexto del flujo:
-- Un agente evaluador analiza los datos que devuelves para determinar quÃ© enfermedad corresponde al paciente.
-- Si el evaluador no tiene suficiente informaciÃ³n para decidir, le hace UNA pregunta al paciente pidiendo un sÃ­ntoma adicional.
-- Cuando el paciente responde esa pregunta, el historial lo incluye. En ese caso, combinÃ¡ TODOS los sÃ­ntomas mencionados en la conversaciÃ³n para generar una query mÃ¡s especÃ­fica que ayude al evaluador a tomar la decisiÃ³n.""",
+- Un agente evaluador analiza los datos que devuelves para determinar qué enfermedad corresponde al paciente.
+- Si el evaluador no tiene suficiente información para decidir, le hace UNA pregunta al paciente pidiendo un síntoma adicional.
+- Cuando el paciente responde esa pregunta, el historial lo incluye. En ese caso, combiná TODOS los síntomas mencionados en la conversación para generar una query más específica que ayude al evaluador a tomar la decisión.""",
         )
 
-        # ConfiguraciÃ³n del modelo 2: EvalÃºa quÃ© enfermedad se adecÃºa mejor al paciente
+        # Configuración del modelo 2: Evalúa qué enfermedad se adecúa mejor al paciente
         self.config_evaluador = types.GenerateContentConfig(
-            system_instruction="""Eres un evaluador mÃ©dico. Recibes la consulta de un paciente y datos de enfermedades de una base de datos.
+            system_instruction="""Eres un evaluador médico. Recibes la consulta de un paciente y datos de enfermedades de una base de datos.
 
-Tu tarea es determinar quÃ© enfermedad se adecÃºa mejor al cuadro del paciente.
+Tu tarea es determinar qué enfermedad se adecúa mejor al cuadro del paciente.
 
 Reglas estrictas:
-1. Si los datos apuntan claramente a UNA enfermedad (score muy superior al resto, cuadro inequÃ­voco,
-   o sÃ­ntomas descartados eliminan las demÃ¡s candidatas), responde:
+1. Si los datos apuntan claramente a UNA enfermedad (score muy superior al resto, cuadro inequívoco,
+   o síntomas descartados eliminan las demás candidatas), responde:
    DECISION: <nombre exacto de la enfermedad tal como aparece en los datos>
 
-2. Si hay 2 o mÃ¡s enfermedades que compiten (scores similares, sÃ­ntomas compartidos, cuadro ambiguo),
-   responde listando ÃšNICAMENTE los nombres de las candidatas separados por coma:
+2. Si hay 2 o más enfermedades que compiten (scores similares, síntomas compartidos, cuadro ambiguo),
+   responde listando ÚNICAMENTE los nombres de las candidatas separados por coma:
    DIFERENCIAL: <EnfA>, <EnfB>, <EnfC>
 
-3. Orden de preferencia de gravedad cuando el paciente no la especifica: leve > moderada > grave > crÃ­tica.
+3. Orden de preferencia de gravedad cuando el paciente no la especifica: leve > moderada > grave > crítica.
 
-4. Ten en cuenta los sÃ­ntomas descartados para eliminar candidatas que los requieren.
+4. Ten en cuenta los síntomas descartados para eliminar candidatas que los requieren.
 
-5. Devuelve ÃšNICAMENTE el prefijo y el contenido. Sin texto adicional.""",
+5. Devuelve ÚNICAMENTE el prefijo y el contenido. Sin texto adicional.""",
         )
 
-        # ConfiguraciÃ³n del modelo 3: Convierte datos crudos en respuesta humana
+        # Configuración del modelo 3: Convierte datos crudos en respuesta humana
         self.config_redactor = types.GenerateContentConfig(
-            system_instruction="""Eres un asistente mÃ©dico empÃ¡tico. Explica resultados de bases de datos
-mÃ©dicas de forma clara y amigable para pacientes no especializados.
-Responde siempre en espaÃ±ol y sugiere consultar a un mÃ©dico para diagnÃ³sticos definitivos.""",
+            system_instruction="""Eres un asistente médico empático. Explica resultados de bases de datos
+médicas de forma clara y amigable para pacientes no especializados.
+Responde siempre en español y sugiere consultar a un médico para diagnósticos definitivos.""",
         )
 
-        # Config unificado: clasifica intenciÃ³n Y extrae sÃ­ntomas en una sola llamada
+        # Config unificado: clasifica intención Y extrae síntomas en una sola llamada
         self.config_analizador = types.GenerateContentConfig(
-            system_instruction="""Analizas mensajes dirigidos a un asistente mÃ©dico virtual y hacÃ©s dos tareas a la vez.
+            system_instruction="""Analizas mensajes dirigidos a un asistente médico virtual y hacés dos tareas a la vez.
 
-TAREA 1 â€” Clasificar intenciÃ³n:
-- SALUDO        â†’ solo saludo o expresiÃ³n social (hola, gracias, etc.)
-- FUNCIONALIDAD â†’ pregunta quÃ© puede hacer el asistente o cÃ³mo funciona
-- SALUDO_FUNC   â†’ combina saludo y pregunta de funcionalidad
-- CONSULTA      â†’ describe sÃ­ntomas, enfermedades, medicamentos u otra consulta mÃ©dica
-Si mezcla saludo/funcionalidad CON consulta mÃ©dica â†’ CONSULTA.
+TAREA 1 — Clasificar intención:
+- SALUDO        → solo saludo o expresión social (hola, gracias, etc.)
+- FUNCIONALIDAD → pregunta qué puede hacer el asistente o cómo funciona
+- SALUDO_FUNC   → combina saludo y pregunta de funcionalidad
+- CONSULTA      → describe síntomas, enfermedades, medicamentos u otra consulta médica
+Si mezcla saludo/funcionalidad CON consulta médica → CONSULTA.
 
-TAREA 2 â€” Extraer sÃ­ntomas con intensidad:
-- 'un poco', 'leve', 'apenas' â†’ intensidad 0.7
-- sin adjetivos o 'tengo...'  â†’ intensidad 1.0
-- 'mucho', 'muy', 'fuerte', 'muchÃ­simo' â†’ intensidad 1.35
+TAREA 2 — Extraer síntomas con intensidad:
+- 'un poco', 'leve', 'apenas' → intensidad 0.7
+- sin adjetivos o 'tengo...'  → intensidad 1.0
+- 'mucho', 'muy', 'fuerte', 'muchísimo' → intensidad 1.35
 
-Devuelve ÃšNICAMENTE un objeto JSON con este formato exacto, sin texto adicional ni bloques markdown:
+Devuelve ÚNICAMENTE un objeto JSON con este formato exacto, sin texto adicional ni bloques markdown:
 {"intencion": "CONSULTA", "sintomas": [{"nombre": "Sintoma", "intensidad": 1.0}]}
 
-Si la intenciÃ³n no es CONSULTA, "sintomas" debe ser [].""",
+Si la intención no es CONSULTA, "sintomas" debe ser [].""",
         )
 
-        # ConfiguraciÃ³n del modelo 0b: Responde saludos y preguntas de funcionalidad
+        # Configuración del modelo 0b: Responde saludos y preguntas de funcionalidad
         self.config_conversacional = types.GenerateContentConfig(
-            system_instruction="""Eres MEDIC-AI, un asistente de orientaciÃ³n mÃ©dica con inteligencia artificial.
-Respondes en espaÃ±ol, de forma cÃ¡lida y concisa.
+            system_instruction="""Eres MEDIC-AI, un asistente de orientación médica con inteligencia artificial.
+Respondes en español, de forma cálida y concisa.
 
-Si el usuario saluda â†’ devuelve un saludo cordial y presÃ©ntate brevemente.
-Si pregunta por tu funcionalidad â†’ explica que podÃ©s relacionar sÃ­ntomas con posibles enfermedades,
-  sugerir la especialidad mÃ©dica adecuada y orientar sobre nivel de gravedad, siempre recordando que
-  no reemplazÃ¡s a un mÃ©dico certificado.
-Si hace ambas cosas â†’ saluda y explica tu funcionalidad en el mismo mensaje.
-No incluyas diagnÃ³sticos ni informaciÃ³n mÃ©dica especÃ­fica en esta respuesta.""",
+Si el usuario saluda → devuelve un saludo cordial y preséntate brevemente.
+Si pregunta por tu funcionalidad → explica que podés relacionar síntomas con posibles enfermedades,
+  sugerir la especialidad médica adecuada y orientar sobre nivel de gravedad, siempre recordando que
+  no reemplazás a un médico certificado.
+Si hace ambas cosas → saluda y explica tu funcionalidad en el mismo mensaje.
+No incluyas diagnósticos ni información médica específica en esta respuesta.""",
         )
 
-        # Config: selecciona el sÃ­ntoma mÃ¡s diferenciador entre las candidatas
+        # Config: selecciona el síntoma más diferenciador entre las candidatas
         self.config_selector_sintoma = types.GenerateContentConfig(
-            system_instruction="""Eres un experto en diagnÃ³stico diferencial mÃ©dico.
+            system_instruction="""Eres un experto en diagnóstico diferencial médico.
 
 Recibes un JSON con:
-- "candidatas": diccionario {enfermedad: [lista de sÃ­ntomas]} de las enfermedades en disputa
-- "ya_preguntados": sÃ­ntomas ya conocidos o preguntados (NO repetir)
+- "candidatas": diccionario {enfermedad: [lista de síntomas]} de las enfermedades en disputa
+- "ya_preguntados": síntomas ya conocidos o preguntados (NO repetir)
 
-Tu tarea: elegir el sÃ­ntoma con MAYOR poder diferenciador entre las candidatas.
+Tu tarea: elegir el síntoma con MAYOR poder diferenciador entre las candidatas.
 
 Criterios (en orden de prioridad):
-1. Presente en ALGUNAS candidatas pero AUSENTE en otras (mÃ¡xima diferenciaciÃ³n)
-2. Muy especÃ­fico de 1 o 2 enfermedades concretas
-3. FÃ¡cil de identificar por el paciente (visible, palpable, concreto)
+1. Presente en ALGUNAS candidatas pero AUSENTE en otras (máxima diferenciación)
+2. Muy específico de 1 o 2 enfermedades concretas
+3. Fácil de identificar por el paciente (visible, palpable, concreto)
 4. NO puede estar en "ya_preguntados"
 
-Devuelve ÃšNICAMENTE el nombre del sÃ­ntoma elegido, tal como aparece en los datos. Sin texto adicional.""",
+Devuelve ÚNICAMENTE el nombre del síntoma elegido, tal como aparece en los datos. Sin texto adicional.""",
         )
 
         # Config: redacta la respuesta diferencial mostrando candidatas + pregunta
         self.config_redactor_diferencial = types.GenerateContentConfig(
-            system_instruction="""Eres un asistente mÃ©dico empÃ¡tico.
+            system_instruction="""Eres un asistente médico empático.
 
 Recibes un JSON con:
-- "consulta_original": lo que describiÃ³ el paciente
+- "consulta_original": lo que describió el paciente
 - "candidatas": lista de enfermedades posibles con su gravedad
-- "sintoma_a_preguntar": el sÃ­ntoma clave para diferenciarlas
+- "sintoma_a_preguntar": el síntoma clave para diferenciarlas
 
 Redacta una respuesta que:
-1. Reconozca los sÃ­ntomas que describiÃ³ el paciente
-2. Explique que sus sÃ­ntomas podrÃ­an corresponder a varias condiciones y las liste brevemente con su nivel de gravedad
-3. Indique que para determinar cuÃ¡l es mÃ¡s probable necesitas una informaciÃ³n mÃ¡s
-4. Pregunte de forma directa y sencilla si el paciente presenta el sÃ­ntoma en "sintoma_a_preguntar"
+1. Reconozca los síntomas que describió el paciente
+2. Explique que sus síntomas podrían corresponder a varias condiciones y las liste brevemente con su nivel de gravedad
+3. Indique que para determinar cuál es más probable necesitas una información más
+4. Pregunte de forma directa y sencilla si el paciente presenta el síntoma en "sintoma_a_preguntar"
 
-Usa lenguaje simple, empÃ¡tico, sin tecnicismos. Responde en espaÃ±ol.
-Siempre recuerda que esto es solo orientaciÃ³n y que debe consultar a un mÃ©dico.""",
+Usa lenguaje simple, empático, sin tecnicismos. Responde en español.
+Siempre recuerda que esto es solo orientación y que debe consultar a un médico.""",
         )
 
     # Palabras clave médicas: si alguna aparece, la consulta no es un saludo puro
@@ -300,7 +300,7 @@ Siempre recuerda que esto es solo orientaciÃ³n y que debe consultar a un mÃ©
                 None,
             )
 
-        # â”€â”€ Paso 0+1: Clasificar intenciÃ³n y extraer sÃ­ntomas (llamada unificada) â”€â”€
+        # ── Paso 0+1: Clasificar intención y extraer síntomas (llamada unificada) ──
         intencion = "CONSULTA"
         sintomas_nuevos = []
         try:
@@ -332,7 +332,7 @@ Siempre recuerda que esto es solo orientaciÃ³n y que debe consultar a un mÃ©
             except Exception as e:
                 return str(e), None
 
-        # â”€â”€ Flujo mÃ©dico â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── Flujo médico ─────────────────────────────────────────────────────
         texto_normalizado = _sin_tildes(texto_usuario)
 
         # Contexto conversacional para el fallback Text-to-Cypher
@@ -347,7 +347,7 @@ Siempre recuerda que esto es solo orientaciÃ³n y que debe consultar a un mÃ©
         else:
             contexto = texto_normalizado
 
-        # â”€â”€ Paso 2: Resolver y actualizar contexto diferencial previo â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── Paso 2: Resolver y actualizar contexto diferencial previo ─────────
         sintomas_confirmados = list((contexto_diferencial or {}).get("sintomas_confirmados", []))
         sintomas_negados     = list((contexto_diferencial or {}).get("sintomas_negados", []))
         sintomas_acumulados  = list((contexto_diferencial or {}).get("sintomas_acumulados", []))
@@ -357,12 +357,12 @@ Siempre recuerda que esto es solo orientaciÃ³n y que debe consultar a un mÃ©
             resp_lower = f" {texto_usuario.lower()} "
 
             _palabras_si = {
-                "si", "sÃ­", "yes", "tengo", "siento", "me duele", "noto",
-                "tambiÃ©n", "tambien", "claro", "correcto", "exacto",
+                "si", "sí", "yes", "tengo", "siento", "me duele", "noto",
+                "también", "tambien", "claro", "correcto", "exacto",
                 "efectivamente", "presenta", "suelo", "a veces",
             }
             _palabras_no = {
-                "no", "tampoco", "nunca", "jamas", "jamÃ¡s",
+                "no", "tampoco", "nunca", "jamas", "jamás",
                 "negativo", "ausente", "para nada",
             }
 
@@ -379,7 +379,7 @@ Siempre recuerda que esto es solo orientaciÃ³n y que debe consultar a un mÃ©
                 if sintoma_preguntado not in sintomas_negados:
                     sintomas_negados.append(sintoma_preguntado)
 
-        # Acumular: sÃ­ntomas previos + nuevos del input + confirmados por el usuario
+        # Acumular: síntomas previos + nuevos del input + confirmados por el usuario
         # Filtrar por seguridad: solo dicts con "nombre" e "intensidad"
         sintomas_acumulados = [
             s for s in sintomas_acumulados
@@ -397,7 +397,7 @@ Siempre recuerda que esto es solo orientaciÃ³n y que debe consultar a un mÃ©
                 sintomas_acumulados.append({"nombre": nombre, "intensidad": 1.0})
                 nombres_acumulados.add(nombre.lower())
 
-        # â”€â”€ Paso 3: BÃºsqueda vectorial con todos los sÃ­ntomas acumulados â”€â”€â”€â”€â”€â”€
+        # ── Paso 3: Búsqueda vectorial con todos los síntomas acumulados ──────
         datos = []
         if sintomas_acumulados:
             t0 = time.time()
@@ -422,7 +422,7 @@ Siempre recuerda que esto es solo orientaciÃ³n y que debe consultar a un mÃ©
                 _log("[preguntar] Ruta 2 ERROR: %s", e)
                 datos = []
 
-        # --- Ruta 3: Text-to-Cypher para preguntas sin sÃ­ntomas (informativas) ---
+        # --- Ruta 3: Text-to-Cypher para preguntas sin síntomas (informativas) ---
         if not datos and not sintomas_acumulados:
             t0 = time.time()
             try:
@@ -435,8 +435,8 @@ Siempre recuerda que esto es solo orientaciÃ³n y que debe consultar a un mÃ©
 
             if cypher_query.lower() == "error":
                 return (
-                    "Lo siento, mi base de datos solo contiene informaciÃ³n sobre enfermedades, "
-                    "sÃ­ntomas y especialidades mÃ©dicas. Â¿Puedes reformular tu pregunta?"
+                    "Lo siento, mi base de datos solo contiene información sobre enfermedades, "
+                    "síntomas y especialidades médicas. ¿Puedes reformular tu pregunta?"
                 ), None
 
             if not _es_query_segura(cypher_query):
@@ -445,7 +445,7 @@ Siempre recuerda que esto es solo orientaciÃ³n y que debe consultar a un mÃ©
             try:
                 datos = self.db.ejecutar_consulta(cypher_query)
             except ServiceUnavailable:
-                return "No se pudo conectar a la base de datos. Por favor intenta de nuevo mÃ¡s tarde.", None
+                return "No se pudo conectar a la base de datos. Por favor intenta de nuevo más tarde.", None
             except (CypherSyntaxError, Exception):
                 datos = []
 
@@ -454,14 +454,14 @@ Siempre recuerda que esto es solo orientaciÃ³n y que debe consultar a un mÃ©
 
         if not datos:
             return (
-                "No encontrÃ© condiciones que coincidan con los sÃ­ntomas descritos. "
-                "Â¿Puedes dar mÃ¡s detalles o mencionar otros sÃ­ntomas?"
+                "No encontré condiciones que coincidan con los síntomas descritos. "
+                "¿Puedes dar más detalles o mencionar otros síntomas?"
             ), None
 
-        # â”€â”€ Paso 4: Evaluador â€” Â¿decisiÃ³n clara o diagnÃ³stico diferencial? â”€â”€â”€â”€
+        # ── Paso 4: Evaluador — ¿decisión clara o diagnóstico diferencial? ────
         prompt_evaluacion = f"""
 Consulta del paciente: "{texto_usuario}"
-SÃ­ntomas descartados (el paciente NO los tiene): {sintomas_negados if sintomas_negados else "ninguno"}
+Síntomas descartados (el paciente NO los tiene): {sintomas_negados if sintomas_negados else "ninguno"}
 Datos encontrados (ordenados por score de probabilidad ponderada): {datos}
 """
         t0 = time.time()
@@ -474,12 +474,12 @@ Datos encontrados (ordenados por score de probabilidad ponderada): {datos}
         except Exception as e:
             return str(e), None
 
-        # â”€â”€ Paso 5a: Modo diagnÃ³stico diferencial â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── Paso 5a: Modo diagnóstico diferencial ─────────────────────────────
         if evaluacion.startswith("DIFERENCIAL:"):
             partes_raw = evaluacion[len("DIFERENCIAL:"):].strip().split(",")
             nombres_candidatas = [p.strip() for p in partes_raw if p.strip()]
 
-            # Filtrar datos a las candidatas que identificÃ³ el evaluador
+            # Filtrar datos a las candidatas que identificó el evaluador
             candidatas = [
                 d for d in datos
                 if any(
@@ -490,7 +490,7 @@ Datos encontrados (ordenados por score de probabilidad ponderada): {datos}
             if not candidatas:
                 candidatas = datos[:min(3, len(datos))]
 
-            # Traer TODOS los sÃ­ntomas de cada candidata desde Neo4j
+            # Traer TODOS los síntomas de cada candidata desde Neo4j
             try:
                 sintomas_por_enf = self.db.obtener_sintomas_enfermedades(
                     [d["enfermedad"] for d in candidatas]
@@ -498,10 +498,10 @@ Datos encontrados (ordenados por score de probabilidad ponderada): {datos}
             except Exception:
                 sintomas_por_enf = {}
 
-            # SÃ­ntomas ya conocidos â†’ no repetir preguntas
+            # Síntomas ya conocidos → no repetir preguntas
             ya_vistos = nombres_acumulados | {s.lower() for s in sintomas_negados}
 
-            # Seleccionar el sÃ­ntoma mÃ¡s diferenciador vÃ­a LLM
+            # Seleccionar el síntoma más diferenciador vía LLM
             prompt_selector = _json.dumps(
                 {"candidatas": sintomas_por_enf, "ya_preguntados": list(ya_vistos)},
                 ensure_ascii=False,
@@ -518,7 +518,7 @@ Datos encontrados (ordenados por score de probabilidad ponderada): {datos}
                 sintoma_dif = _seleccionar_sintoma_fallback(sintomas_por_enf, ya_vistos)
                 _log("[preguntar] Paso 5a selector FALLBACK: %s", sintoma_dif)
 
-            # Guardar estado diferencial para el prÃ³ximo turno
+            # Guardar estado diferencial para el próximo turno
             nuevo_contexto = {
                 "enfermedades_candidatas": candidatas,
                 "sintomas_por_enfermedad": sintomas_por_enf,
@@ -528,7 +528,7 @@ Datos encontrados (ordenados por score de probabilidad ponderada): {datos}
                 "sintomas_acumulados":     sintomas_acumulados,
             }
 
-            # Redactar respuesta diferencial (candidatas + pregunta del sÃ­ntoma)
+            # Redactar respuesta diferencial (candidatas + pregunta del síntoma)
             prompt_redaccion_dif = _json.dumps(
                 {
                     "consulta_original": texto_usuario,
@@ -553,7 +553,7 @@ Datos encontrados (ordenados por score de probabilidad ponderada): {datos}
 
             return respuesta, nuevo_contexto
 
-        # â”€â”€ Paso 5b: DecisiÃ³n Ãºnica â€” redactar respuesta final â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── Paso 5b: Decisión única — redactar respuesta final ────────────────
         if evaluacion.startswith("DECISION:"):
             nombre_seleccionado = evaluacion[len("DECISION:"):].strip()
             datos_filtrados = [d for d in datos if nombre_seleccionado.lower() in str(d).lower()]
@@ -562,10 +562,10 @@ Datos encontrados (ordenados por score de probabilidad ponderada): {datos}
             datos_para_redactor = datos
 
         prompt_redaccion = f"""
-El usuario realizÃ³ esta consulta: "{texto_usuario}"
-Los datos encontrados en la base de datos mÃ©dica son: {datos_para_redactor}
+El usuario realizó esta consulta: "{texto_usuario}"
+Los datos encontrados en la base de datos médica son: {datos_para_redactor}
 
-Redacta una respuesta clara y amigable basada ÃšNICAMENTE en esos datos.
+Redacta una respuesta clara y amigable basada ÚNICAMENTE en esos datos.
 """
         t0 = time.time()
         try:
