@@ -1,6 +1,7 @@
 import base64
 from pathlib import Path
 import streamlit as st
+import consultas as asistente_module
 from consultas import AsistenteMedico
 
 _ASSETS = Path(__file__).parent / "assets"
@@ -255,4 +256,7 @@ if prompt := st.chat_input("Describí tus síntomas...  (ej: tengo fiebre y dolo
                 prompt, st.session_state.mensajes, st.session_state.contexto_diferencial
             )
         st.markdown(respuesta)
+        if asistente_module._timing_log:
+            with st.expander("⏱ Timing", expanded=False):
+                st.code("\n".join(asistente_module._timing_log))
         st.session_state.mensajes.append({"role": "assistant", "content": respuesta})

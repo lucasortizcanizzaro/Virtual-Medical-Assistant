@@ -14,16 +14,14 @@ from obtenerSintomas import MedicoDB
 # y las credenciales se leen desde st.secrets (ver mÃ¡s abajo).
 load_dotenv()
 
-# Reutiliza el root logger que google.genai ya configuró (basicConfig sería ignorado)
-logger = logging.getLogger("asistente")
-logger.setLevel(logging.DEBUG)
+# Buffer de timing: se limpia al inicio de cada llamada a preguntar()
+_timing_log: list[str] = []
 
 def _log(msg, *args):
-    import sys
+    import datetime
     text = (msg % args) if args else msg
-    sys.stderr.write(f"[TIMING] {text}\n")
-    sys.stderr.flush()
-    logger.info("[TIMING] %s", text)
+    ts = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
+    _timing_log.append(f"{ts}  {text}")
 
 # Modelo LLM utilizado en todos los agentes
 GEMINI_MODEL = "gemini-3.1-flash-lite-preview"
