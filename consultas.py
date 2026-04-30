@@ -120,8 +120,14 @@ def _get_secret(key: str) -> str:
 
 class AsistenteMedico:
     def __init__(self):
-        # Cliente único de la nueva SDK
-        self.client = genai.Client(api_key=_get_secret("GEMINI_API_KEY"))
+        api_key = _get_secret("GEMINI_API_KEY")
+        # Cliente principal (v1beta) — para modelos de generación
+        self.client = genai.Client(api_key=api_key)
+        # Cliente de embeddings (v1) — text-embedding-004 solo existe en v1
+        self.embed_client = genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(api_version="v1"),
+        )
 
         # La conexión a Neo4j se configura desde secrets (Cloud) o .env (local)
         self.db = MedicoDB(
@@ -402,7 +408,7 @@ Siempre recuerda que esto es solo orientación y que debe consultar a un médico
         if sintomas_acumulados:
             t0 = time.time()
             try:
-                sintomas_con_vector = _generar_embeddings_sintomas(self.client, sintomas_acumulados)
+                sintomas_con_vector = _generar_embeddings_sintomas(self.embed_client, sintomas_acumulados)
                 t_embed = time.time() - t0
                 datos = self.db.buscar_con_intensidad_vectorial(sintomas_con_vector)
                 _log("[preguntar] Paso 3 vectorial: embed=%.2fs neo4j=%.2fs resultados=%d", t_embed, time.time() - t0 - t_embed, len(datos))
