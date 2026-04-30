@@ -353,8 +353,17 @@ Siempre recuerda que esto es solo orientación y que debe consultar a un médico
             except Exception:
                 datos = []
 
-        # --- Fallback Text-to-Cypher si el vector no dio resultados ---
-        if not datos:
+        # --- Ruta 2: Fallback por nombre exacto si vector no dio resultados ---
+        if not datos and sintomas_acumulados:
+            try:
+                datos = self.db.obtener_ranking_enfermedades(
+                    [s["nombre"] for s in sintomas_acumulados]
+                )
+            except Exception:
+                datos = []
+
+        # --- Ruta 3: Text-to-Cypher para preguntas sin síntomas (informativas) ---
+        if not datos and not sintomas_acumulados:
             try:
                 cypher_query = _generar_con_reintento(
                     self.client, "gemini-3.1-flash-lite-preview", contexto, self.config_traductor
@@ -375,16 +384,8 @@ Siempre recuerda que esto es solo orientación y que debe consultar a un médico
                 datos = self.db.ejecutar_consulta(cypher_query)
             except ServiceUnavailable:
                 return "No se pudo conectar a la base de datos. Por favor intenta de nuevo más tarde.", None
-            except CypherSyntaxError as e:
-                return f"Error de sintaxis en la query generada.\n\nQuery: `{cypher_query}`\n\nError: {e}", None
-            except Exception as e:
-                return f"Ocurrió un error inesperado al consultar la base de datos: {e}", None
-
-            if not datos:
-                return (
-                    "No encontré condiciones que coincidan con los síntomas descritos. "
-                    "¿Puedes dar más detalles o mencionar otros síntomas?"
-                ), None
+            except (CypherSyntaxError, Exception):
+                datos = []
 
         # Normalizar datos: asegurar que todos los registros tengan la clave "enfermedad"
         datos = [d for d in datos if isinstance(d, dict) and d.get("enfermedad")]
