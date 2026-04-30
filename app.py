@@ -134,7 +134,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ── Sección: cómo está construido / flujo del sistema ────────────────────────
-with st.expander("⚙️  ¿Cómo está construido y cómo funciona el sistema?"):
+with st.expander("¿Cómo está construido y cómo funciona el sistema?"):
     st.markdown("""
 <div class="arch-section">
 

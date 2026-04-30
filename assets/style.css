@@ -525,7 +525,13 @@ header {
     margin-bottom: 20px !important;
     box-shadow: 0 2px 10px rgba(0,0,0,0.05) !important;
 }
-[data-testid="stExpander"] summary {
+[data-testid="stExpander"] summary,
+[data-testid="stExpander"] summary:hover,
+[data-testid="stExpander"] summary:focus,
+[data-testid="stExpander"] summary:focus-visible,
+[data-testid="stExpander"] summary * {
+    background: var(--bg-card) !important;
+    background-color: var(--bg-card) !important;
     font-weight: 600 !important;
     font-size: 0.90rem !important;
     color: var(--text-1) !important;
