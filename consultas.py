@@ -294,7 +294,13 @@ Siempre recuerda que esto es solo orientación y que debe consultar a un médico
             sintomas_json_str = _generar_con_reintento(
                 self.client, "gemini-3.1-flash-lite-preview", texto_usuario, self.config_extractor_sintomas
             ).strip()
-            sintomas_nuevos = _json.loads(sintomas_json_str)
+            parsed = _json.loads(sintomas_json_str)
+            # Validar que sea lista de dicts con "nombre" e "intensidad"
+            if isinstance(parsed, list) and all(
+                isinstance(item, dict) and "nombre" in item and "intensidad" in item
+                for item in parsed
+            ):
+                sintomas_nuevos = parsed
         except Exception:
             sintomas_nuevos = []
 
@@ -331,6 +337,11 @@ Siempre recuerda que esto es solo orientación y que debe consultar a un médico
                     sintomas_negados.append(sintoma_preguntado)
 
         # Acumular: síntomas previos + nuevos del input + confirmados por el usuario
+        # Filtrar por seguridad: solo dicts con "nombre" e "intensidad"
+        sintomas_acumulados = [
+            s for s in sintomas_acumulados
+            if isinstance(s, dict) and "nombre" in s and "intensidad" in s
+        ]
         nombres_acumulados = {s["nombre"].lower() for s in sintomas_acumulados}
 
         for s in sintomas_nuevos:
