@@ -84,6 +84,20 @@ class MedicoDB:
                 for record in result
             ]
 
+    def obtener_sintomas_enfermedades(self, nombres: list) -> dict:
+        """Dado una lista de nombres de enfermedades, devuelve todos sus síntomas.
+        Retorna: {"Gripe": ["fiebre", "tos", ...], "Resfriado": [...], ...}
+        """
+        cypher = """
+        UNWIND $nombres AS nombre
+        MATCH (e:Enfermedad)-[:GENERA]->(s:Sintoma)
+        WHERE toLower(e.nombre) = toLower(nombre)
+        RETURN e.nombre AS enfermedad, collect(s.nombre) AS sintomas
+        """
+        with self.driver.session() as session:
+            result = session.run(cypher, nombres=nombres)
+            return {r["enfermedad"]: r["sintomas"] for r in result}
+
     def obtener_ranking_con_intensidad(self, sintomas_json: list) -> list:
         """Top 3 enfermedades ponderando sensibilidad clínica por la intensidad declarada por el usuario."""
         query = """

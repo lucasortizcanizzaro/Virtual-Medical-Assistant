@@ -49,6 +49,9 @@ if "mensajes" not in st.session_state:
         }
     ]
 
+if "contexto_diferencial" not in st.session_state:
+    st.session_state.contexto_diferencial = None
+
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 _logo = _logo_b64()
 _logo_html = (
@@ -85,6 +88,7 @@ with st.sidebar:
                 ),
             }
         ]
+        st.session_state.contexto_diferencial = None
         st.rerun()
 
     n_total = len(st.session_state.mensajes)
@@ -142,6 +146,8 @@ if prompt := st.chat_input("Describí tus síntomas...  (ej: tengo fiebre y dolo
 
     with st.chat_message("assistant"):
         with st.spinner("Analizando tu consulta…"):
-            respuesta = asistente.preguntar(prompt, st.session_state.mensajes)
+            respuesta, st.session_state.contexto_diferencial = asistente.preguntar(
+                prompt, st.session_state.mensajes, st.session_state.contexto_diferencial
+            )
         st.markdown(respuesta)
         st.session_state.mensajes.append({"role": "assistant", "content": respuesta})
