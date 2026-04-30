@@ -19,7 +19,11 @@ logger = logging.getLogger("asistente")
 logger.setLevel(logging.DEBUG)
 
 def _log(msg, *args):
-    logger.info(msg, *args)
+    import sys
+    text = (msg % args) if args else msg
+    sys.stderr.write(f"[TIMING] {text}\n")
+    sys.stderr.flush()
+    logger.info("[TIMING] %s", text)
 
 # Modelo LLM utilizado en todos los agentes
 GEMINI_MODEL = "gemini-3.1-flash-lite-preview"
