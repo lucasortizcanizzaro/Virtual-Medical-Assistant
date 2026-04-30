@@ -46,17 +46,49 @@ def _es_query_segura(query: str) -> bool:
     return not _CYPHER_WRITE_PATTERN.search(query)
 
 
+# Modelos de embedding en orden de preferencia; se cachea el primero que responda OK.
+# outputDimensionality=768 garantiza compatibilidad con el índice vectorial de Neo4j.
+_EMBEDDING_MODELS = [
+    "gemini-embedding-exp-03-07",  # Modelo más reciente (mar-2025)
+    "text-embedding-004",          # Modelo anterior (puede estar obsoleto)
+]
+_embedding_model_activo: list[str] = []  # [nombre_modelo] — lista de 1 elemento como caché mutable
+
+
 def _generar_embedding(api_key: str, texto: str) -> list:
-    """Convierte texto en un vector de 768 dimensiones usando text-embedding-004 via REST."""
+    """Convierte texto en un vector de 768 dimensiones via REST.
+    Detecta automáticamente el primer modelo disponible y lo reutiliza.
+    """
     import requests
-    resp = requests.post(
-        "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent",
-        params={"key": api_key},
-        json={"model": "models/text-embedding-004", "content": {"parts": [{"text": texto}]}},
-        timeout=30,
-    )
-    resp.raise_for_status()
-    return resp.json()["embedding"]["values"]
+
+    modelos_a_probar = _embedding_model_activo if _embedding_model_activo else _EMBEDDING_MODELS
+    ultimo_error: Exception | None = None
+
+    for model_name in modelos_a_probar:
+        try:
+            resp = requests.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:embedContent",
+                params={"key": api_key},
+                json={
+                    "model": f"models/{model_name}",
+                    "content": {"parts": [{"text": texto}]},
+                    "outputDimensionality": 768,
+                },
+                timeout=30,
+            )
+            resp.raise_for_status()
+            # Cachear el modelo que funcionó para no volver a probar en llamadas futuras
+            if not _embedding_model_activo:
+                _embedding_model_activo.append(model_name)
+            return resp.json()["embedding"]["values"]
+        except Exception as exc:
+            ultimo_error = exc
+            # Si el modelo cacheado falló (p.ej. deprecated en caliente), limpiar caché
+            if _embedding_model_activo:
+                _embedding_model_activo.clear()
+            continue
+
+    raise ultimo_error or RuntimeError("No se encontró ningún modelo de embeddings disponible.")
 
 
 def _generar_embeddings_sintomas(api_key: str, sintomas_json: list) -> list:
