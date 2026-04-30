@@ -118,7 +118,6 @@ header {
 /* ─ Sidebar: logo ────────────────────────────────────────────────────────── */
 .sb-logo {
     text-align: center;
-    padding: 22px 12px 16px;
 }
 .sb-logo img {
     width: 150px;
@@ -397,6 +396,13 @@ header {
     border-radius: 10px;
 }
 ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.22); }
+
+/* ─ Sidebar header (barra con botón de colapso) ──────────────────────────── */
+[data-testid="stSidebarHeader"] {
+    min-height: 30px !important;
+    height: 30px !important;
+    padding: 0 !important;
+}
 
 /* ─ Sección arquitectura / flujo ─────────────────────────────────────────── */
 .arch-section {
