@@ -172,17 +172,26 @@ médicas de forma clara y amigable para pacientes no especializados.
 Responde siempre en español y sugiere consultar a un médico para diagnósticos definitivos.""",
         )
 
-        # Configuración del modelo 0a: Clasifica la intención del mensaje
-        self.config_clasificador = types.GenerateContentConfig(
-            system_instruction="""Clasificas la intención de mensajes dirigidos a un asistente médico virtual.
+        # Config unificado: clasifica intención Y extrae síntomas en una sola llamada
+        self.config_analizador = types.GenerateContentConfig(
+            system_instruction="""Analizas mensajes dirigidos a un asistente médico virtual y hacés dos tareas a la vez.
 
-Devuelve ÚNICAMENTE una de estas etiquetas, sin texto adicional:
-- SALUDO           → el mensaje es solo un saludo o expresión social (hola, buenas, gracias, etc.)
-- FUNCIONALIDAD    → el mensaje pregunta qué puede hacer, cómo funciona o para qué sirve el asistente
-- SALUDO_FUNC      → el mensaje combina saludo y pregunta por funcionalidad
-- CONSULTA         → el mensaje describe síntomas, enfermedades, medicamentos u otra consulta médica
+TAREA 1 — Clasificar intención:
+- SALUDO        → solo saludo o expresión social (hola, gracias, etc.)
+- FUNCIONALIDAD → pregunta qué puede hacer el asistente o cómo funciona
+- SALUDO_FUNC   → combina saludo y pregunta de funcionalidad
+- CONSULTA      → describe síntomas, enfermedades, medicamentos u otra consulta médica
+Si mezcla saludo/funcionalidad CON consulta médica → CONSULTA.
 
-Si el mensaje mezcla saludo/funcionalidad CON una consulta médica, devuelve CONSULTA.""",
+TAREA 2 — Extraer síntomas con intensidad:
+- 'un poco', 'leve', 'apenas' → intensidad 0.7
+- sin adjetivos o 'tengo...'  → intensidad 1.0
+- 'mucho', 'muy', 'fuerte', 'muchísimo' → intensidad 1.35
+
+Devuelve ÚNICAMENTE un objeto JSON con este formato exacto, sin texto adicional ni bloques markdown:
+{"intencion": "CONSULTA", "sintomas": [{"nombre": "Sintoma", "intensidad": 1.0}]}
+
+Si la intención no es CONSULTA, "sintomas" debe ser [].""",
         )
 
         # Configuración del modelo 0b: Responde saludos y preguntas de funcionalidad
@@ -196,19 +205,6 @@ Si pregunta por tu funcionalidad → explica que podés relacionar síntomas con
   no reemplazás a un médico certificado.
 Si hace ambas cosas → saluda y explica tu funcionalidad en el mismo mensaje.
 No incluyas diagnósticos ni información médica específica en esta respuesta.""",
-        )
-
-        # Configuración del extractor de síntomas con intensidad
-        self.config_extractor_sintomas = types.GenerateContentConfig(
-            system_instruction="""Extraes síntomas y su intensidad del texto de un paciente.
-
-Reglas de intensidad (I):
-- 'un poco', 'leve', 'apenas' → I = 0.7
-- Sin adjetivos o 'tengo...' → I = 1.0
-- 'mucho', 'muy', 'fuerte', 'muchísimo' → I = 1.35
-
-Devuelve ÚNICAMENTE una lista JSON con el formato: [{"nombre": "Sintoma", "intensidad": I}]
-Sin texto extra, sin bloques de código markdown. Si no hay síntomas, devuelve: []""",
         )
 
         # Config: selecciona el síntoma más diferenciador entre las candidatas
@@ -257,11 +253,21 @@ Siempre recuerda que esto es solo orientación y que debe consultar a un médico
         """
         import json as _json
 
-        # ── Paso 0: Clasificar intención ─────────────────────────────────────
+        # ── Paso 0+1: Clasificar intención y extraer síntomas (llamada unificada) ──
+        intencion = "CONSULTA"
+        sintomas_nuevos = []
         try:
-            intencion = _generar_con_reintento(
-                self.client, "gemini-3.1-flash-lite-preview", texto_usuario, self.config_clasificador
-            ).strip().upper()
+            analisis_str = _generar_con_reintento(
+                self.client, "gemini-3.1-flash-lite-preview", texto_usuario, self.config_analizador
+            ).strip()
+            analisis = _json.loads(analisis_str)
+            intencion = str(analisis.get("intencion", "CONSULTA")).strip().upper()
+            candidatos = analisis.get("sintomas", [])
+            if isinstance(candidatos, list) and all(
+                isinstance(item, dict) and "nombre" in item and "intensidad" in item
+                for item in candidatos
+            ):
+                sintomas_nuevos = candidatos
         except Exception:
             intencion = "CONSULTA"
 
@@ -287,22 +293,6 @@ Siempre recuerda que esto es solo orientación y que debe consultar a un médico
             contexto = "Contexto previo de la conversacion:\n" + "\n".join(lineas) + f"\n\nPregunta actual: {texto_normalizado}"
         else:
             contexto = texto_normalizado
-
-        # ── Paso 1: Extraer síntomas del input actual ─────────────────────────
-        sintomas_nuevos = []
-        try:
-            sintomas_json_str = _generar_con_reintento(
-                self.client, "gemini-3.1-flash-lite-preview", texto_usuario, self.config_extractor_sintomas
-            ).strip()
-            parsed = _json.loads(sintomas_json_str)
-            # Validar que sea lista de dicts con "nombre" e "intensidad"
-            if isinstance(parsed, list) and all(
-                isinstance(item, dict) and "nombre" in item and "intensidad" in item
-                for item in parsed
-            ):
-                sintomas_nuevos = parsed
-        except Exception:
-            sintomas_nuevos = []
 
         # ── Paso 2: Resolver y actualizar contexto diferencial previo ─────────
         sintomas_confirmados = list((contexto_diferencial or {}).get("sintomas_confirmados", []))
