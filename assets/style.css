@@ -535,7 +535,7 @@ header {
     font-weight: 600 !important;
     font-size: 0.90rem !important;
     color: var(--text-1) !important;
-    padding: 14px 20px !important;
+    padding: 1px 2px !important;
 }
 [data-testid="stExpander"] > div:last-child {
     padding: 0 20px 16px !important;
