@@ -1,4 +1,5 @@
-﻿import os
+﻿import logging
+import os
 import re
 import time
 import unicodedata
@@ -13,8 +14,11 @@ from obtenerSintomas import MedicoDB
 # y las credenciales se leen desde st.secrets (ver mÃ¡s abajo).
 load_dotenv()
 
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
 # Modelo LLM utilizado en todos los agentes
-GEMINI_MODEL = "gemini-2.5-flash-preview-04-17"
+GEMINI_MODEL = "gemini-3.1-flash-lite-preview"
 
 # PatrÃ³n que detecta operaciones de escritura en Cypher
 _CYPHER_WRITE_PATTERN = re.compile(
@@ -256,6 +260,8 @@ Siempre recuerda que esto es solo orientaciÃ³n y que debe consultar a un mÃ©
         """
         import json as _json
 
+        t_inicio = time.time()
+
         # â”€â”€ Paso 0+1: Clasificar intenciÃ³n y extraer sÃ­ntomas (llamada unificada) â”€â”€
         intencion = "CONSULTA"
         sintomas_nuevos = []
@@ -273,12 +279,18 @@ Siempre recuerda que esto es solo orientaciÃ³n y que debe consultar a un mÃ©
                 sintomas_nuevos = candidatos
         except Exception:
             intencion = "CONSULTA"
+        logger.info("[preguntar] Paso 1 analizador: %.2fs | intencion=%s | sintomas=%s",
+                    time.time() - t_inicio, intencion, [s["nombre"] for s in sintomas_nuevos])
 
         if intencion in ("SALUDO", "FUNCIONALIDAD", "SALUDO_FUNC"):
             try:
-                return _generar_con_reintento(
+                t0 = time.time()
+                resp = _generar_con_reintento(
                     self.client, GEMINI_MODEL, texto_usuario, self.config_conversacional
-                ), None
+                )
+                logger.info("[preguntar] conversacional: %.2fs | TOTAL: %.2fs",
+                            time.time() - t0, time.time() - t_inicio)
+                return resp, None
             except Exception as e:
                 return str(e), None
 
@@ -350,27 +362,36 @@ Siempre recuerda que esto es solo orientaciÃ³n y que debe consultar a un mÃ©
         # â”€â”€ Paso 3: BÃºsqueda vectorial con todos los sÃ­ntomas acumulados â”€â”€â”€â”€â”€â”€
         datos = []
         if sintomas_acumulados:
+            t0 = time.time()
             try:
                 sintomas_con_vector = _generar_embeddings_sintomas(self.client, sintomas_acumulados)
+                t_embed = time.time() - t0
                 datos = self.db.buscar_con_intensidad_vectorial(sintomas_con_vector)
-            except Exception:
+                logger.info("[preguntar] Paso 3 vectorial: embed=%.2fs neo4j=%.2fs resultados=%d", t_embed, time.time() - t0 - t_embed, len(datos))
+            except Exception as e:
+                logger.warning("[preguntar] Paso 3 vectorial ERROR: %s", e)
                 datos = []
 
         # --- Ruta 2: Fallback por nombre exacto si vector no dio resultados ---
         if not datos and sintomas_acumulados:
+            t0 = time.time()
             try:
                 datos = self.db.obtener_ranking_enfermedades(
                     [s["nombre"] for s in sintomas_acumulados]
                 )
-            except Exception:
+                logger.info("[preguntar] Ruta 2 nombre exacto: %.2fs resultados=%d", time.time() - t0, len(datos))
+            except Exception as e:
+                logger.warning("[preguntar] Ruta 2 ERROR: %s", e)
                 datos = []
 
         # --- Ruta 3: Text-to-Cypher para preguntas sin sÃ­ntomas (informativas) ---
         if not datos and not sintomas_acumulados:
+            t0 = time.time()
             try:
                 cypher_query = _generar_con_reintento(
                     self.client, GEMINI_MODEL, contexto, self.config_traductor
                 ).strip()
+                logger.info("[preguntar] Ruta 3 traductor: %.2fs", time.time() - t0)
             except Exception as e:
                 return str(e), None
 
@@ -405,10 +426,13 @@ Consulta del paciente: "{texto_usuario}"
 SÃ­ntomas descartados (el paciente NO los tiene): {sintomas_negados if sintomas_negados else "ninguno"}
 Datos encontrados (ordenados por score de probabilidad ponderada): {datos}
 """
+        t0 = time.time()
         try:
             evaluacion = _generar_con_reintento(
                 self.client, GEMINI_MODEL, prompt_evaluacion, self.config_evaluador
             ).strip()
+            logger.info('[preguntar] Paso 4 evaluador: %.2fs | resultado=%s',
+                        time.time() - t0, evaluacion[:60])
         except Exception as e:
             return str(e), None
 
@@ -444,13 +468,17 @@ Datos encontrados (ordenados por score de probabilidad ponderada): {datos}
                 {"candidatas": sintomas_por_enf, "ya_preguntados": list(ya_vistos)},
                 ensure_ascii=False,
             )
+            t0 = time.time()
             try:
                 sintoma_dif = _generar_con_reintento(
                     self.client, GEMINI_MODEL,
                     prompt_selector, self.config_selector_sintoma
                 ).strip()
+                logger.info("[preguntar] Paso 5a selector: %.2fs | sintoma=%s",
+                            time.time() - t0, sintoma_dif)
             except Exception:
                 sintoma_dif = _seleccionar_sintoma_fallback(sintomas_por_enf, ya_vistos)
+                logger.info("[preguntar] Paso 5a selector FALLBACK: %s", sintoma_dif)
 
             # Guardar estado diferencial para el prÃ³ximo turno
             nuevo_contexto = {
@@ -474,11 +502,14 @@ Datos encontrados (ordenados por score de probabilidad ponderada): {datos}
                 },
                 ensure_ascii=False,
             )
+            t0 = time.time()
             try:
                 respuesta = _generar_con_reintento(
                     self.client, GEMINI_MODEL,
                     prompt_redaccion_dif, self.config_redactor_diferencial
                 )
+                logger.info("[preguntar] Paso 5a redactor_dif: %.2fs | TOTAL: %.2fs",
+                            time.time() - t0, time.time() - t_inicio)
             except Exception as e:
                 respuesta = str(e)
 
@@ -498,14 +529,19 @@ Los datos encontrados en la base de datos mÃ©dica son: {datos_para_redactor}
 
 Redacta una respuesta clara y amigable basada ÃšNICAMENTE en esos datos.
 """
+        t0 = time.time()
         try:
-            return _generar_con_reintento(
+            resp = _generar_con_reintento(
                 self.client, GEMINI_MODEL, prompt_redaccion, self.config_redactor
-            ), None
+            )
+            logger.info("[preguntar] Paso 5b redactor: %.2fs | TOTAL: %.2fs",
+                        time.time() - t0, time.time() - t_inicio)
+            return resp, None
         except Exception as e:
             return str(e), None
 
     def cerrar(self):
         self.db.close()
+
 
 
