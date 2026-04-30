@@ -396,6 +396,15 @@ Siempre recuerda que esto es solo orientación y que debe consultar a un médico
                     "¿Puedes dar más detalles o mencionar otros síntomas?"
                 ), None
 
+        # Normalizar datos: asegurar que todos los registros tengan la clave "enfermedad"
+        datos = [d for d in datos if isinstance(d, dict) and d.get("enfermedad")]
+
+        if not datos:
+            return (
+                "No encontré condiciones que coincidan con los síntomas descritos. "
+                "¿Puedes dar más detalles o mencionar otros síntomas?"
+            ), None
+
         # ── Paso 4: Evaluador — ¿decisión clara o diagnóstico diferencial? ────
         prompt_evaluacion = f"""
 Consulta del paciente: "{texto_usuario}"
