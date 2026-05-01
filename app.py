@@ -151,13 +151,13 @@ with st.expander("¿Cómo está construido y cómo funciona el sistema?"):
   <div class="tech-card">
     <span class="tc-icon">✨</span>
     <span class="tc-name">Google Gemini</span>
-    <span class="tc-role">Motor de IA · modelos especializados por tarea</span>
+    <span class="tc-role">Motor de IA · agentes especializados por tarea (gemini-3.1-flash-lite)</span>
   </div>
 
   <div class="tech-card">
     <span class="tc-icon">🔢</span>
-    <span class="tc-name">text-embedding-004</span>
-    <span class="tc-role">Embeddings de 768 dim. para búsqueda semántica de síntomas</span>
+    <span class="tc-name">gemini-embedding-001</span>
+    <span class="tc-role">Embeddings de 768 dim. vía REST para búsqueda semántica de síntomas</span>
   </div>
 
   <div class="tech-card">
@@ -172,34 +172,48 @@ with st.expander("¿Cómo está construido y cómo funciona el sistema?"):
 <div class="flow-steps">
 
   <div class="flow-step">
+    <div class="step-num">0</div>
+    <div class="step-body">
+      <strong>Ruta ultra-rápida — detección por regex <span class="step-badge badge-green">0 llamadas LLM</span></strong>
+      <span>Si el mensaje es un saludo puro (hola, gracias, chau…) sin ninguna palabra médica,
+      se responde de forma instantánea sin consumir la API. El flujo termina aquí.</span>
+    </div>
+  </div>
+
+  <div class="flow-step">
     <div class="step-num">1</div>
     <div class="step-body">
-      <strong>Clasificación de intención <span class="step-badge badge-blue">Gemini Lite</span></strong>
-      <span>El mensaje del usuario se clasifica como <em>SALUDO</em>, <em>FUNCIONALIDAD</em> o
-      <em>CONSULTA MÉDICA</em>. Si no es una consulta médica, un agente conversacional responde
-      de forma directa y el flujo termina aquí.</span>
+      <strong>Análisis unificado: intención + síntomas <span class="step-badge badge-blue">Gemini Lite · 1 llamada</span></strong>
+      <span>Una sola llamada LLM clasifica la intención del mensaje (<em>SALUDO</em>,
+      <em>FUNCIONALIDAD</em> o <em>CONSULTA</em>) y extrae simultáneamente los síntomas con su
+      intensidad (0.7 leve · 1.0 normal · 1.35 fuerte). Si no es consulta médica, un agente
+      conversacional responde y el flujo termina.</span>
     </div>
   </div>
 
   <div class="flow-step">
     <div class="step-num">2</div>
     <div class="step-body">
-      <strong>Extracción de síntomas <span class="step-badge badge-blue">Gemini Lite</span></strong>
-      <span>Un modelo extrae los síntomas mencionados y les asigna una <em>intensidad</em>
-      (0.7 leve · 1.0 normal · 1.35 fuerte) a partir de adjetivos como "mucho", "apenas", etc.
-      Los síntomas se acumulan a lo largo de toda la conversación.</span>
+      <strong>Resolución del contexto diferencial previo</strong>
+      <span>Si en el turno anterior se preguntó por un síntoma de descarte, se interpreta la
+      respuesta del paciente (sí/no) y se actualiza la lista de síntomas confirmados, negados y
+      acumulados a lo largo de toda la conversación.</span>
     </div>
   </div>
 
   <div class="flow-step">
     <div class="step-num">3</div>
     <div class="step-body">
-      <strong>Búsqueda vectorial en Neo4j <span class="step-badge badge-teal">text-embedding-004 + Neo4j</span></strong>
-      <span>Cada síntoma se convierte en un vector de 768 dimensiones y se compara contra el
-      índice <code>sintoma_embeddings</code> del grafo. El score final pondera
-      <em>probabilidad de presencia × intensidad del paciente × frecuencia poblacional</em> de la
-      enfermedad. Si la búsqueda vectorial no encuentra nada, se usa un fallback
-      Text-to-Cypher.</span>
+      <strong>Búsqueda en tres capas <span class="step-badge badge-teal">gemini-embedding-001 + Neo4j</span></strong>
+      <span>
+        <b>Capa 1 — Vectorial:</b> cada síntoma acumulado se convierte en un vector de 768 dim. y
+        se consulta el índice <code>sintoma_embeddings</code>. El score pondera
+        <em>probabilidad de presencia × intensidad × frecuencia poblacional</em>.<br>
+        <b>Capa 2 — Nombre exacto:</b> si la búsqueda vectorial no devuelve resultados, se busca
+        por coincidencia exacta de nombre en el grafo.<br>
+        <b>Capa 3 — Text-to-Cypher:</b> solo para consultas informativas sin síntomas (ej: "¿qué
+        enfermedades trata un cardiólogo?"). Genera Cypher, valida que sea solo lectura y lo ejecuta.
+      </span>
     </div>
   </div>
 
@@ -207,28 +221,28 @@ with st.expander("¿Cómo está construido y cómo funciona el sistema?"):
     <div class="step-num">4</div>
     <div class="step-body">
       <strong>Evaluación diagnóstica <span class="step-badge badge-blue">Gemini Lite</span></strong>
-      <span>Un modelo evaluador analiza los candidatos ordenados por score y devuelve
+      <span>Un modelo evaluador analiza los candidatos ordenados por score. Devuelve
       <code>DECISION: &lt;enfermedad&gt;</code> si hay un ganador claro, o
       <code>DIFERENCIAL: &lt;Enf A&gt;, &lt;Enf B&gt;</code> si compiten varias.
-      Los síntomas descartados se usan para eliminar candidatas.</span>
+      Los síntomas negados por el paciente se usan para descartar candidatas.</span>
     </div>
   </div>
 
   <div class="flow-step">
     <div class="step-num">5a</div>
     <div class="step-body">
-      <strong>Diagnóstico diferencial — pregunta de descarte <span class="step-badge badge-teal">Gemini Lite</span></strong>
-      <span>Cuando hay empate, se consultan todos los síntomas de cada candidata en Neo4j y
-      un selector elige el síntoma con mayor <em>poder diferenciador</em> (presente en algunas
-      candidatas pero ausente en otras). El asistente pregunta al paciente si lo experimenta y
-      guarda el contexto para el siguiente turno.</span>
+      <strong>Diagnóstico diferencial — pregunta de descarte <span class="step-badge badge-blue">Gemini Lite</span></strong>
+      <span>Cuando hay empate, se consultan en Neo4j todos los síntomas de cada candidata.
+      Un selector LLM elige el síntoma con mayor <em>poder diferenciador</em> (presente en
+      algunas candidatas pero ausente en otras) y el asistente se lo pregunta al paciente.
+      El contexto se guarda para el siguiente turno.</span>
     </div>
   </div>
 
   <div class="flow-step">
     <div class="step-num">5b</div>
     <div class="step-body">
-      <strong>Redacción de la respuesta final <span class="step-badge badge-green">Gemini Flash</span></strong>
+      <strong>Redacción de la respuesta final <span class="step-badge badge-blue">Gemini Lite</span></strong>
       <span>Con la enfermedad decidida, un modelo redactor convierte los datos crudos del grafo
       (gravedad, especialidad, síntomas asociados) en una respuesta empática en lenguaje natural,
       recordando siempre consultar a un médico para un diagnóstico definitivo.</span>
