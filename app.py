@@ -53,6 +53,9 @@ if "mensajes" not in st.session_state:
 if "contexto_diferencial" not in st.session_state:
     st.session_state.contexto_diferencial = None
 
+if "ultimo_timing" not in st.session_state:
+    st.session_state.ultimo_timing = []
+
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 _logo = _logo_b64()
 _logo_html = (
@@ -270,7 +273,8 @@ if prompt := st.chat_input("Describí tus síntomas...  (ej: tengo fiebre y dolo
                 prompt, st.session_state.mensajes, st.session_state.contexto_diferencial
             )
         st.markdown(respuesta)
-        if asistente_module._timing_log:
-            with st.expander("⏱ Timing", expanded=False):
-                st.code("\n".join(asistente_module._timing_log))
+        st.session_state.ultimo_timing = list(asistente_module._timing_log)
+        if st.session_state.ultimo_timing:
+            with st.expander("⏱ Timing", expanded=True):
+                st.code("\n".join(st.session_state.ultimo_timing))
         st.session_state.mensajes.append({"role": "assistant", "content": respuesta})
