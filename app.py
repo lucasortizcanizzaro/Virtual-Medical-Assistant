@@ -34,6 +34,14 @@ def crear_asistente():
 
 asistente = crear_asistente()
 
+# ── Estado de la API (cacheado 60 s) ─────────────────────────────────────────
+@st.cache_data(ttl=60, show_spinner=False)
+def _verificar_estado_api() -> bool:
+    """Resultado cacheado 60 s para no saturar la API en cada render."""
+    return asistente_module.verificar_api(asistente_module._get_secret("GEMINI_API_KEY"))
+
+_api_ok = _verificar_estado_api()
+
 # ── Estado inicial ────────────────────────────────────────────────────────────
 if "mensajes" not in st.session_state:
     st.session_state.mensajes = [
@@ -77,6 +85,21 @@ with st.sidebar:
     <div class="status-pill">
         <span class="pulse-dot"></span>
         Sistema activo
+    </div>
+    """, unsafe_allow_html=True)
+
+    if _api_ok:
+        st.markdown("""
+    <div class="status-pill">
+        <span class="pulse-dot"></span>
+        API activa
+    </div>
+    """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+    <div class="status-pill status-pill--error">
+        <span class="pulse-dot pulse-dot--error"></span>
+        API inactiva
     </div>
     """, unsafe_allow_html=True)
 
@@ -272,6 +295,7 @@ if prompt := st.chat_input("Describí tus síntomas...  (ej: tengo fiebre y dolo
             respuesta, st.session_state.contexto_diferencial = asistente.preguntar(
                 prompt, st.session_state.mensajes, st.session_state.contexto_diferencial
             )
+            _verificar_estado_api.clear()
         st.markdown(respuesta)
         st.session_state.ultimo_timing = list(asistente_module._timing_log)
         if st.session_state.ultimo_timing:

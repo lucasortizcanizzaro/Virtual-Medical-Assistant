@@ -1,4 +1,4 @@
-import logging
+﻿import logging
 import os
 import re
 import time
@@ -65,6 +65,26 @@ def _generar_embedding(api_key: str, texto: str) -> list:
     )
     resp.raise_for_status()
     return resp.json()["embedding"]["values"]
+
+
+def verificar_api(api_key: str) -> bool:
+    """Hace una llamada mínima para comprobar si la API de Gemini responde."""
+    import requests
+    try:
+        resp = requests.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{EMBEDDING_MODEL}:embedContent",
+            params={"key": api_key},
+            json={
+                "model": f"models/{EMBEDDING_MODEL}",
+                "content": {"parts": [{"text": "ping"}]},
+                "taskType": "RETRIEVAL_QUERY",
+                "outputDimensionality": 1,
+            },
+            timeout=5,
+        )
+        return resp.status_code == 200
+    except Exception:
+        return False
 
 
 def _generar_embeddings_sintomas(api_key: str, sintomas_json: list) -> list:
