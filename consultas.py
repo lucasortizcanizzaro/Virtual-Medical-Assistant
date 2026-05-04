@@ -271,8 +271,14 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
         t_inicio = time.time()
 
         # ── Ruta ultra-rápida: saludo sin palabras médicas → 0 llamadas LLM ──
+        # Nunca aplicar si hay un diferencial activo: la respuesta del usuario
+        # ("no", "sí", etc.) debe llegar al Paso 2 para resolver la pregunta de descarte.
         texto_strip = texto_usuario.strip()
-        if self._SALUDOS.match(texto_strip) and not self._KW_MEDICOS.search(texto_strip):
+        if (
+            not contexto_diferencial
+            and self._SALUDOS.match(texto_strip)
+            and not self._KW_MEDICOS.search(texto_strip)
+        ):
             _log("[preguntar] saludo detectado por regex: %.3fs | TOTAL: %.3fs (0 LLM calls)",
                  time.time() - t_inicio, time.time() - t_inicio)
             return (
@@ -303,7 +309,7 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
         _log("[preguntar] Paso 1 analizador: %.2fs | intencion=%s | sintomas=%s",
                     time.time() - t_inicio, intencion, [s["nombre"] for s in sintomas_nuevos])
 
-        if intencion in ("SALUDO", "FUNCIONALIDAD", "SALUDO_FUNC"):
+        if intencion in ("SALUDO", "FUNCIONALIDAD", "SALUDO_FUNC") and not contexto_diferencial:
             try:
                 t0 = time.time()
                 resp = _generar_con_reintento(
