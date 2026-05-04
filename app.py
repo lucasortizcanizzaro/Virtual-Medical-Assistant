@@ -291,11 +291,65 @@ if prompt := st.chat_input("Describí tus síntomas...  (ej: tengo fiebre y dolo
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        with st.spinner("Analizando tu consulta…"):
-            respuesta, st.session_state.contexto_diferencial = asistente.preguntar(
-                prompt, st.session_state.mensajes, st.session_state.contexto_diferencial
+        import threading as _threading
+        import time as _time
+
+        # Etapas: (fracción de la barra al inicio de la etapa, texto)
+        _ETAPAS = [
+            (0.00, "Analizando consulta..."),
+            (0.30, "Consultando base de datos..."),
+            (0.45, "Evaluando diagnóstico..."),
+            (0.88, "Preparando respuesta..."),
+        ]
+        _TOTAL_S = 30.0   # duración esperada en segundos
+        _TICK    = 0.12   # intervalo de refresco
+
+        _resultado = [None, None]
+        _error     = [None]
+
+        def _ejecutar():
+            try:
+                _resultado[0], _resultado[1] = asistente.preguntar(
+                    prompt, st.session_state.mensajes, st.session_state.contexto_diferencial
+                )
+            except Exception as exc:
+                _error[0] = exc
+
+        _hilo = _threading.Thread(target=_ejecutar, daemon=True)
+        _hilo.start()
+
+        _txt  = st.empty()
+        _barra = st.progress(0.0)
+        _elapsed = 0.0
+
+        while _hilo.is_alive():
+            frac = min(_elapsed / _TOTAL_S, 0.97)
+            # elegir la etiqueta de la etapa actual
+            label = _ETAPAS[-1][1]
+            for i in range(len(_ETAPAS) - 1, -1, -1):
+                if frac >= _ETAPAS[i][0]:
+                    label = _ETAPAS[i][1]
+                    break
+            _barra.progress(frac)
+            _txt.markdown(
+                f"<span style='color:#6b7280;font-size:0.88rem'>⏳ {label}</span>",
+                unsafe_allow_html=True,
             )
+            _time.sleep(_TICK)
+            _elapsed += _TICK
+
+        _barra.progress(1.0)
+        _txt.empty()
+        _barra.empty()
+
+        if _error[0]:
+            respuesta = str(_error[0])
+            st.session_state.contexto_diferencial = None
+        else:
+            respuesta = _resultado[0]
+            st.session_state.contexto_diferencial = _resultado[1]
             _verificar_estado_api.clear()
+
         st.markdown(respuesta)
         st.session_state.ultimo_timing = list(asistente_module._timing_log)
         if st.session_state.ultimo_timing:
