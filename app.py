@@ -360,7 +360,6 @@ if prompt := st.chat_input("Describí tus síntomas...  (ej: tengo fiebre y dolo
         # Reemplaza el loader con la respuesta — sin elemento extra
         _slot.markdown(respuesta)
 
-        st.markdown(respuesta)
         st.session_state.ultimo_timing = list(asistente_module._timing_log)
         if st.session_state.ultimo_timing:
             with st.expander("⏱ Timing", expanded=True):
