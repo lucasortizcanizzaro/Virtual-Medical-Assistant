@@ -296,10 +296,10 @@ if prompt := st.chat_input("Describí tus síntomas...  (ej: tengo fiebre y dolo
 
         # Etapas: (fracción de la barra al inicio de la etapa, texto)
         _ETAPAS = [
-            (0.00, "Analizando consulta..."),
-            (0.30, "Consultando base de datos..."),
-            (0.45, "Evaluando diagnóstico..."),
-            (0.88, "Preparando respuesta..."),
+            (0.00, "Analizando consulta"),
+            (0.30, "Consultando base de datos"),
+            (0.45, "Evaluando diagnóstico"),
+            (0.88, "Preparando respuesta"),
         ]
         _TOTAL_S = 30.0   # duración esperada en segundos
         _TICK    = 0.12   # intervalo de refresco
@@ -322,29 +322,32 @@ if prompt := st.chat_input("Describí tus síntomas...  (ej: tengo fiebre y dolo
         _hilo = _threading.Thread(target=_ejecutar, daemon=True)
         _hilo.start()
 
-        _txt  = st.empty()
-        _barra = st.progress(0.0)
+        # Un único placeholder — se reemplaza con la respuesta al terminar
+        _slot = st.empty()
         _elapsed = 0.0
 
         while _hilo.is_alive():
             frac = min(_elapsed / _TOTAL_S, 0.97)
-            # elegir la etiqueta de la etapa actual
+            pct  = int(frac * 100)
             label = _ETAPAS[-1][1]
             for i in range(len(_ETAPAS) - 1, -1, -1):
                 if frac >= _ETAPAS[i][0]:
                     label = _ETAPAS[i][1]
                     break
-            _barra.progress(frac)
-            _txt.markdown(
-                f"<span style='color:#6b7280;font-size:0.88rem'>⏳ {label}</span>",
+            _slot.markdown(
+                f"""<div style="display:flex;align-items:center;gap:10px;padding:2px 0">
+  <span style="color:#6b7280;font-size:0.85rem;white-space:nowrap">⏳ {label}</span>
+  <div style="flex:1;max-width:220px;background:#e5e7eb;border-radius:4px;height:5px">
+    <div style="width:{pct}%;height:5px;border-radius:4px;
+                background:linear-gradient(90deg,#0891b2,#06b6d4);
+                transition:width 0.1s linear"></div>
+  </div>
+  <span style="color:#9ca3af;font-size:0.75rem;min-width:30px">{pct}%</span>
+</div>""",
                 unsafe_allow_html=True,
             )
             _time.sleep(_TICK)
             _elapsed += _TICK
-
-        _barra.progress(1.0)
-        _txt.empty()
-        _barra.empty()
 
         if _error[0]:
             respuesta = str(_error[0])
@@ -353,6 +356,9 @@ if prompt := st.chat_input("Describí tus síntomas...  (ej: tengo fiebre y dolo
             respuesta = _resultado[0]
             st.session_state.contexto_diferencial = _resultado[1]
             _verificar_estado_api.clear()
+
+        # Reemplaza el loader con la respuesta — sin elemento extra
+        _slot.markdown(respuesta)
 
         st.markdown(respuesta)
         st.session_state.ultimo_timing = list(asistente_module._timing_log)
