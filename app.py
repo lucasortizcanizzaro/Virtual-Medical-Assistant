@@ -306,11 +306,15 @@ if prompt := st.chat_input("Describí tus síntomas...  (ej: tengo fiebre y dolo
 
         _resultado = [None, None]
         _error     = [None]
+        # Capturar los valores del session_state en el hilo principal,
+        # ya que st.session_state no es accesible desde hilos secundarios.
+        _mensajes_snapshot  = list(st.session_state.mensajes)
+        _contexto_snapshot  = st.session_state.contexto_diferencial
 
         def _ejecutar():
             try:
                 _resultado[0], _resultado[1] = asistente.preguntar(
-                    prompt, st.session_state.mensajes, st.session_state.contexto_diferencial
+                    prompt, _mensajes_snapshot, _contexto_snapshot
                 )
             except Exception as exc:
                 _error[0] = exc
