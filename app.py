@@ -297,9 +297,9 @@ if prompt := st.chat_input("Describí tus síntomas...  (ej: tengo fiebre y dolo
         # Etapas: (fracción de la barra al inicio de la etapa, texto)
         _ETAPAS = [
             (0.00, "Analizando consulta"),
-            (0.30, "Consultando base de datos"),
-            (0.45, "Evaluando diagnóstico"),
-            (0.88, "Preparando respuesta"),
+            (0.15, "Consultando base de datos"),
+            (0.25, "Evaluando diagnóstico"),
+            (0.50, "Preparando respuesta"),
         ]
         _TOTAL_S = 30.0   # duración esperada en segundos
         _TICK    = 0.12   # intervalo de refresco
