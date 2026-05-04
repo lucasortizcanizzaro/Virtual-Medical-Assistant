@@ -361,7 +361,9 @@ if prompt := st.chat_input("Describí tus síntomas...  (ej: tengo fiebre y dolo
         _slot.markdown(respuesta)
 
         st.session_state.ultimo_timing = list(asistente_module._timing_log)
-        if st.session_state.ultimo_timing:
-            with st.expander("⏱ Timing", expanded=True):
-                st.code("\n".join(st.session_state.ultimo_timing))
         st.session_state.mensajes.append({"role": "assistant", "content": respuesta})
+
+# ── Timing del último turno (fuera del if prompt para persistir en re-renders) ──
+if st.session_state.get("ultimo_timing"):
+    with st.expander("⏱ Timing", expanded=True):
+        st.code("\n".join(st.session_state.ultimo_timing))
