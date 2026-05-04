@@ -190,55 +190,39 @@ Contexto del flujo:
 - Cuando el paciente responde esa pregunta, el historial lo incluye. En ese caso, combiná TODOS los síntomas mencionados en la conversación para generar una query más específica que ayude al evaluador a tomar la decisión.""",
         )
 
-        # Configuración del modelo 2: Evalúa qué enfermedad se adecúa mejor al paciente
-        self.config_evaluador = types.GenerateContentConfig(
-            system_instruction="""Eres un evaluador médico. Recibes la consulta de un paciente y datos de enfermedades de una base de datos.
+        # Config combinado: evalúa candidatas Y redacta la respuesta en una sola llamada
+        self.config_evaluador_redactor = types.GenerateContentConfig(
+            system_instruction="""Eres un evaluador médico y redactor para un asistente médico virtual. Respondés en español.
+Recibes la consulta del paciente, síntomas descartados y datos de enfermedades ordenados por score.
 
-Tu tarea es determinar qué enfermedad se adecúa mejor al cuadro del paciente.
+Reglas:
+1. Si los datos apuntan claramente a UNA enfermedad (score muy superior, síntomas inequívocos,
+   o los síntomas descartados eliminan las demás candidatas), redactá directamente una respuesta
+   empática y clara: nombrá la condición probable, su gravedad, los síntomas que la sustentan,
+   la/s especialidad/es recomendadas y recordale al paciente consultar a un médico.
+   Escribí la respuesta directamente, SIN ningún prefijo.
 
-Reglas estrictas:
-1. Si los datos apuntan claramente a UNA enfermedad (score muy superior al resto, cuadro inequívoco,
-   o síntomas descartados eliminan las demás candidatas), responde:
-   DECISION: <nombre exacto de la enfermedad tal como aparece en los datos>
-
-2. Si hay 2 o más enfermedades que compiten (scores similares, síntomas compartidos, cuadro ambiguo),
-   responde listando ÚNICAMENTE los nombres de las candidatas separados por coma:
+2. Si 2 o más enfermedades compiten (scores similares, síntomas compartidos, cuadro ambiguo),
+   devolvé ÚNICAMENTE:
    DIFERENCIAL: <EnfA>, <EnfB>, <EnfC>
 
-3. Orden de preferencia de gravedad cuando el paciente no la especifica: leve > moderada > grave > crítica.
-
-4. Ten en cuenta los síntomas descartados para eliminar candidatas que los requieren.
-
-5. Devuelve ÚNICAMENTE el prefijo y el contenido. Sin texto adicional.""",
-        )
-
-        # Configuración del modelo 3: Convierte datos crudos en respuesta humana
-        self.config_redactor = types.GenerateContentConfig(
-            system_instruction="""Eres un asistente médico empático. Explica resultados de bases de datos
-médicas de forma clara y amigable para pacientes no especializados.
-Responde siempre en español y sugiere consultar a un médico para diagnósticos definitivos.""",
+Preferencia de gravedad cuando no se especifica: leve > moderada > grave > crítica.
+Usá los síntomas descartados para eliminar candidatas que los requieren.""",
         )
 
         # Config unificado: clasifica intención Y extrae síntomas en una sola llamada
         self.config_analizador = types.GenerateContentConfig(
-            system_instruction="""Analizas mensajes dirigidos a un asistente médico virtual y hacés dos tareas a la vez.
-
-TAREA 1 — Clasificar intención:
-- SALUDO        → solo saludo o expresión social (hola, gracias, etc.)
-- FUNCIONALIDAD → pregunta qué puede hacer el asistente o cómo funciona
-- SALUDO_FUNC   → combina saludo y pregunta de funcionalidad
-- CONSULTA      → describe síntomas, enfermedades, medicamentos u otra consulta médica
-Si mezcla saludo/funcionalidad CON consulta médica → CONSULTA.
-
-TAREA 2 — Extraer síntomas con intensidad:
-- 'un poco', 'leve', 'apenas' → intensidad 0.7
-- sin adjetivos o 'tengo...'  → intensidad 1.0
-- 'mucho', 'muy', 'fuerte', 'muchísimo' → intensidad 1.35
-
-Devuelve ÚNICAMENTE un objeto JSON con este formato exacto, sin texto adicional ni bloques markdown:
-{"intencion": "CONSULTA", "sintomas": [{"nombre": "Sintoma", "intensidad": 1.0}]}
-
-Si la intención no es CONSULTA, "sintomas" debe ser [].""",
+            system_instruction="""Analizas mensajes de un asistente médico. Dos tareas:
+1) Intención: SALUDO|FUNCIONALIDAD|SALUDO_FUNC|CONSULTA
+   SALUDO=solo saludo/expresión social. FUNCIONALIDAD=pregunta sobre qué puede hacer el asistente.
+   SALUDO_FUNC=ambas. CONSULTA=síntomas/enfermedades/medicamentos. Mezcla con consulta médica→CONSULTA.
+2) Síntomas con intensidad (solo si CONSULTA):
+   'un poco','leve','apenas'→0.7 | sin adjetivos→1.0 | 'mucho','muy','fuerte','muchísimo'→1.35
+Devuelve SOLO JSON sin markdown:
+{"intencion":"CONSULTA","sintomas":[{"nombre":"Sintoma","intensidad":1.0}]}
+Si no es CONSULTA, "sintomas":[].""",
+            temperature=0.0,
+            max_output_tokens=150,
         )
 
         # Configuración del modelo 0b: Responde saludos y preguntas de funcionalidad
@@ -501,9 +485,9 @@ Datos encontrados (ordenados por score de probabilidad ponderada): {datos}
         t0 = time.time()
         try:
             evaluacion = _generar_con_reintento(
-                self.client, GEMINI_MODEL, prompt_evaluacion, self.config_evaluador
+                self.client, GEMINI_MODEL, prompt_evaluacion, self.config_evaluador_redactor
             ).strip()
-            _log('[preguntar] Paso 4 evaluador: %.2fs | resultado=%s',
+            _log('[preguntar] Paso 4+5b evaluador_redactor: %.2fs | resultado=%s',
                         time.time() - t0, evaluacion[:60])
         except Exception as e:
             return str(e), None
@@ -587,30 +571,10 @@ Datos encontrados (ordenados por score de probabilidad ponderada): {datos}
 
             return respuesta, nuevo_contexto
 
-        # ── Paso 5b: Decisión única — redactar respuesta final ────────────────
-        if evaluacion.startswith("DECISION:"):
-            nombre_seleccionado = evaluacion[len("DECISION:"):].strip()
-            datos_filtrados = [d for d in datos if nombre_seleccionado.lower() in str(d).lower()]
-            datos_para_redactor = datos_filtrados if datos_filtrados else datos
-        else:
-            datos_para_redactor = datos
-
-        prompt_redaccion = f"""
-El usuario realizó esta consulta: "{texto_usuario}"
-Los datos encontrados en la base de datos médica son: {datos_para_redactor}
-
-Redacta una respuesta clara y amigable basada ÚNICAMENTE en esos datos.
-"""
-        t0 = time.time()
-        try:
-            resp = _generar_con_reintento(
-                self.client, GEMINI_MODEL, prompt_redaccion, self.config_redactor
-            )
-            _log("[preguntar] Paso 5b redactor: %.2fs | TOTAL: %.2fs",
-                        time.time() - t0, time.time() - t_inicio)
-            return resp, None
-        except Exception as e:
-            return str(e), None
+        # ── Paso 5b: Respuesta generada directamente por el evaluador-redactor ─
+        _log("[preguntar] Paso 5b (incluido en 4+5b) | TOTAL: %.2fs",
+                    time.time() - t_inicio)
+        return evaluacion, None
 
     def cerrar(self):
         self.db.close()
