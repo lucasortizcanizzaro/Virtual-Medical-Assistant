@@ -190,24 +190,25 @@ Contexto del flujo:
 - Cuando el paciente responde esa pregunta, el historial lo incluye. En ese caso, combiná TODOS los síntomas mencionados en la conversación para generar una query más específica que ayude al evaluador a tomar la decisión.""",
         )
 
-        # Config combinado: evalúa candidatas Y redacta la respuesta en una sola llamada
+        # Config combinado: evalúa candidatas Y redacta toda la respuesta en una sola llamada
         self.config_evaluador_redactor = types.GenerateContentConfig(
-            system_instruction="""Eres un evaluador médico y redactor para un asistente médico virtual. Respondés en español.
-Recibes la consulta del paciente, síntomas descartados y datos de enfermedades ordenados por score.
+            system_instruction="""Eres evaluador médico y redactor para un asistente médico virtual. Respondés en español.
+Recibes la consulta del paciente, síntomas descartados, síntomas ya conocidos y datos de enfermedades con todos sus síntomas.
 
-Reglas:
-1. Si los datos apuntan claramente a UNA enfermedad (score muy superior, síntomas inequívocos,
-   o los síntomas descartados eliminan las demás candidatas), redactá directamente una respuesta
-   empática y clara: nombrá la condición probable, su gravedad, los síntomas que la sustentan,
-   la/s especialidad/es recomendadas y recordale al paciente consultar a un médico.
-   Escribí la respuesta directamente, SIN ningún prefijo.
+CASO A — Ganador claro (score muy superior, síntomas inequívocos, o síntomas descartados eliminan las demás):
+  Redactá directamente una respuesta empática: nombrá la condición probable, su gravedad,
+  síntomas que la sustentan, especialidad/es recomendadas y recordale consultar a un médico. Sin prefijo.
 
-2. Si 2 o más enfermedades compiten (scores similares, síntomas compartidos, cuadro ambiguo),
-   devolvé ÚNICAMENTE:
-   DIFERENCIAL: <EnfA>, <EnfB>, <EnfC>
+CASO B — Varias enfermedades compiten (scores similares, síntomas compartidos, cuadro ambiguo):
+  1. Elegí el síntoma con MAYOR poder diferenciador: presente en ALGUNAS candidatas pero AUSENTE
+     en otras, NO en la lista de ya_conocidos, fácil de identificar por el paciente.
+  2. Primera línea obligatoria:
+     DIFERENCIAL_SINTOMA: <nombre exacto del síntoma elegido>
+  3. A continuación, la respuesta empática: reconocé los síntomas del paciente, listá las
+     condiciones posibles con su gravedad, y preguntá directamente si tiene el síntoma elegido.
 
-Preferencia de gravedad cuando no se especifica: leve > moderada > grave > crítica.
-Usá los síntomas descartados para eliminar candidatas que los requieren.""",
+Preferencia de gravedad: leve > moderada > grave > crítica.
+Usá los síntomas descartados para eliminar candidatas.""",
         )
 
         # Config unificado: clasifica intención Y extrae síntomas en una sola llamada
@@ -238,43 +239,7 @@ Si hace ambas cosas → saluda y explica tu funcionalidad en el mismo mensaje.
 No incluyas diagnósticos ni información médica específica en esta respuesta.""",
         )
 
-        # Config: selecciona el síntoma más diferenciador entre las candidatas
-        self.config_selector_sintoma = types.GenerateContentConfig(
-            system_instruction="""Eres un experto en diagnóstico diferencial médico.
 
-Recibes un JSON con:
-- "candidatas": diccionario {enfermedad: [lista de síntomas]} de las enfermedades en disputa
-- "ya_preguntados": síntomas ya conocidos o preguntados (NO repetir)
-
-Tu tarea: elegir el síntoma con MAYOR poder diferenciador entre las candidatas.
-
-Criterios (en orden de prioridad):
-1. Presente en ALGUNAS candidatas pero AUSENTE en otras (máxima diferenciación)
-2. Muy específico de 1 o 2 enfermedades concretas
-3. Fácil de identificar por el paciente (visible, palpable, concreto)
-4. NO puede estar en "ya_preguntados"
-
-Devuelve ÚNICAMENTE el nombre del síntoma elegido, tal como aparece en los datos. Sin texto adicional.""",
-        )
-
-        # Config: redacta la respuesta diferencial mostrando candidatas + pregunta
-        self.config_redactor_diferencial = types.GenerateContentConfig(
-            system_instruction="""Eres un asistente médico empático.
-
-Recibes un JSON con:
-- "consulta_original": lo que describió el paciente
-- "candidatas": lista de enfermedades posibles con su gravedad
-- "sintoma_a_preguntar": el síntoma clave para diferenciarlas
-
-Redacta una respuesta que:
-1. Reconozca los síntomas que describió el paciente
-2. Explique que sus síntomas podrían corresponder a varias condiciones y las liste brevemente con su nivel de gravedad
-3. Indique que para determinar cuál es más probable necesitas una información más
-4. Pregunte de forma directa y sencilla si el paciente presenta el síntoma en "sintoma_a_preguntar"
-
-Usa lenguaje simple, empático, sin tecnicismos. Responde en español.
-Siempre recuerda que esto es solo orientación y que debe consultar a un médico.""",
-        )
 
     # Palabras clave médicas: si alguna aparece, la consulta no es un saludo puro
     _KW_MEDICOS = re.compile(
@@ -476,11 +441,27 @@ Siempre recuerda que esto es solo orientación y que debe consultar a un médico
                 "¿Puedes dar más detalles o mencionar otros síntomas?"
             ), None
 
-        # ── Paso 4: Evaluador — ¿decisión clara o diagnóstico diferencial? ────
+        # ── Paso 4: Evaluar y redactar — 1 sola llamada LLM ───────────────────────
+        # Obtener todos los síntomas por enfermedad desde Neo4j (rápido, sin costo de API)
+        try:
+            sintomas_por_enf = self.db.obtener_sintomas_enfermedades(
+                [d["enfermedad"] for d in datos]
+            )
+        except Exception:
+            sintomas_por_enf = {}
+
+        ya_vistos = nombres_acumulados | {s.lower() for s in sintomas_negados}
+
+        datos_con_sintomas = [
+            {**d, "todos_sintomas": sintomas_por_enf.get(d["enfermedad"], d.get("sintomas", []))}
+            for d in datos
+        ]
+
         prompt_evaluacion = f"""
 Consulta del paciente: "{texto_usuario}"
 Síntomas descartados (el paciente NO los tiene): {sintomas_negados if sintomas_negados else "ninguno"}
-Datos encontrados (ordenados por score de probabilidad ponderada): {datos}
+Síntomas ya conocidos (NO volver a preguntar): {list(ya_vistos) if ya_vistos else "ninguno"}
+Datos de enfermedades con todos sus síntomas (ordenados por score): {datos_con_sintomas}
 """
         t0 = time.time()
         try:
@@ -492,83 +473,24 @@ Datos encontrados (ordenados por score de probabilidad ponderada): {datos}
         except Exception as e:
             return str(e), None
 
-        # ── Paso 5a: Modo diagnóstico diferencial ─────────────────────────────
-        if evaluacion.startswith("DIFERENCIAL:"):
-            partes_raw = evaluacion[len("DIFERENCIAL:"):].strip().split(",")
-            nombres_candidatas = [p.strip() for p in partes_raw if p.strip()]
+        # ── Paso 5a: Diferencial — parsear síntoma + respuesta del output combinado ──
+        if evaluacion.startswith("DIFERENCIAL_SINTOMA:"):
+            primera_linea, _, respuesta = evaluacion.partition("\n")
+            sintoma_dif = primera_linea[len("DIFERENCIAL_SINTOMA:"):].strip()
+            respuesta = respuesta.strip()
+            if not respuesta:
+                respuesta = evaluacion  # fallback: mostrar todo si falta el cuerpo
 
-            # Filtrar datos a las candidatas que identificó el evaluador
-            candidatas = [
-                d for d in datos
-                if any(
-                    nc.lower() in d["enfermedad"].lower() or d["enfermedad"].lower() in nc.lower()
-                    for nc in nombres_candidatas
-                )
-            ]
-            if not candidatas:
-                candidatas = datos[:min(3, len(datos))]
-
-            # Traer TODOS los síntomas de cada candidata desde Neo4j
-            try:
-                sintomas_por_enf = self.db.obtener_sintomas_enfermedades(
-                    [d["enfermedad"] for d in candidatas]
-                )
-            except Exception:
-                sintomas_por_enf = {}
-
-            # Síntomas ya conocidos → no repetir preguntas
-            ya_vistos = nombres_acumulados | {s.lower() for s in sintomas_negados}
-
-            # Seleccionar el síntoma más diferenciador vía LLM
-            prompt_selector = _json.dumps(
-                {"candidatas": sintomas_por_enf, "ya_preguntados": list(ya_vistos)},
-                ensure_ascii=False,
-            )
-            t0 = time.time()
-            try:
-                sintoma_dif = _generar_con_reintento(
-                    self.client, GEMINI_MODEL,
-                    prompt_selector, self.config_selector_sintoma
-                ).strip()
-                _log("[preguntar] Paso 5a selector: %.2fs | sintoma=%s",
-                            time.time() - t0, sintoma_dif)
-            except Exception:
-                sintoma_dif = _seleccionar_sintoma_fallback(sintomas_por_enf, ya_vistos)
-                _log("[preguntar] Paso 5a selector FALLBACK: %s", sintoma_dif)
-
-            # Guardar estado diferencial para el próximo turno
             nuevo_contexto = {
-                "enfermedades_candidatas": candidatas,
+                "enfermedades_candidatas": datos,
                 "sintomas_por_enfermedad": sintomas_por_enf,
                 "sintoma_preguntado":      sintoma_dif,
                 "sintomas_confirmados":    sintomas_confirmados,
                 "sintomas_negados":        sintomas_negados,
                 "sintomas_acumulados":     sintomas_acumulados,
             }
-
-            # Redactar respuesta diferencial (candidatas + pregunta del síntoma)
-            prompt_redaccion_dif = _json.dumps(
-                {
-                    "consulta_original": texto_usuario,
-                    "candidatas": [
-                        {"enfermedad": d["enfermedad"], "gravedad": d["gravedad"]}
-                        for d in candidatas
-                    ],
-                    "sintoma_a_preguntar": sintoma_dif,
-                },
-                ensure_ascii=False,
-            )
-            t0 = time.time()
-            try:
-                respuesta = _generar_con_reintento(
-                    self.client, GEMINI_MODEL,
-                    prompt_redaccion_dif, self.config_redactor_diferencial
-                )
-                _log("[preguntar] Paso 5a redactor_dif: %.2fs | TOTAL: %.2fs",
-                            time.time() - t0, time.time() - t_inicio)
-            except Exception as e:
-                respuesta = str(e)
-
+            _log("[preguntar] Paso 5a diferencial (fusionado en 4) | sintoma=%s | TOTAL: %.2fs",
+                        sintoma_dif, time.time() - t_inicio)
             return respuesta, nuevo_contexto
 
         # ── Paso 5b: Respuesta generada directamente por el evaluador-redactor ─
