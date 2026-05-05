@@ -64,6 +64,9 @@ if "contexto_diferencial" not in st.session_state:
 if "ultimo_timing" not in st.session_state:
     st.session_state.ultimo_timing = []
 
+if "ultimo_envio" not in st.session_state:
+    st.session_state.ultimo_envio = 0.0  # timestamp del último mensaje enviado
+
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 _logo = _logo_b64()
 _logo_html = (
@@ -182,7 +185,7 @@ with st.expander("¿Cómo está construido y cómo funciona el sistema?"):
 
   <div class="tech-card">
     <span class="tc-icon">🔢</span>
-    <span class="tc-name">gemini-embedding-001</span>
+    <span class="tc-name">gemini-embedding-2</span>
     <span class="tc-role">Embeddings de 768 dim. vía REST para búsqueda semántica de síntomas</span>
   </div>
 
@@ -230,7 +233,7 @@ with st.expander("¿Cómo está construido y cómo funciona el sistema?"):
   <div class="flow-step">
     <div class="step-num">3</div>
     <div class="step-body">
-      <strong>Búsqueda en tres capas <span class="step-badge badge-teal">gemini-embedding-001 + Neo4j</span></strong>
+      <strong>Búsqueda en tres capas <span class="step-badge badge-teal">gemini-embedding-2 + Neo4j</span></strong>
       <span>
         <b>Capa 1 — Vectorial:</b> cada síntoma acumulado se convierte en un vector de 768 dim. y
         se consulta el índice <code>sintoma_embeddings</code>. El score pondera
@@ -285,7 +288,17 @@ for msj in st.session_state.mensajes:
         st.markdown(msj["content"])
 
 # ── Input y procesamiento ─────────────────────────────────────────────────────
+_RATE_LIMIT_S = 3.0  # segundos mínimos entre mensajes
+
 if prompt := st.chat_input("Describí tus síntomas...  (ej: tengo fiebre y dolor de cabeza)"):
+    import time as _time_rl
+    _ahora = _time_rl.time()
+    _desde_ultimo = _ahora - st.session_state.ultimo_envio
+    if _desde_ultimo < _RATE_LIMIT_S:
+        st.warning(f"Esperá {_RATE_LIMIT_S - _desde_ultimo:.0f}s antes de enviar otro mensaje.", icon="⏳")
+        st.stop()
+    st.session_state.ultimo_envio = _ahora
+
     st.session_state.mensajes.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
@@ -350,18 +363,23 @@ if prompt := st.chat_input("Describí tus síntomas...  (ej: tengo fiebre y dolo
             _elapsed += _TICK
 
         if _error[0]:
-            respuesta = str(_error[0])
+            _slot.empty()
+            st.error(
+                f"Error interno al procesar la consulta. Por favor intentá de nuevo.\n\n"
+                f"`{type(_error[0]).__name__}: {_error[0]}`",
+                icon="🚨",
+            )
             st.session_state.contexto_diferencial = None
+            # No se agrega al historial — no es una respuesta válida
         else:
             respuesta = _resultado[0]
             st.session_state.contexto_diferencial = _resultado[1]
             _verificar_estado_api.clear()
-
-        # Reemplaza el loader con la respuesta — sin elemento extra
-        _slot.markdown(respuesta)
+            # Reemplaza el loader con la respuesta — sin elemento extra
+            _slot.markdown(respuesta)
+            st.session_state.mensajes.append({"role": "assistant", "content": respuesta})
 
         st.session_state.ultimo_timing = list(asistente_module._timing_log)
-        st.session_state.mensajes.append({"role": "assistant", "content": respuesta})
 
 # ── Timing del último turno (fuera del if prompt para persistir en re-renders) ──
 if st.session_state.get("ultimo_timing"):

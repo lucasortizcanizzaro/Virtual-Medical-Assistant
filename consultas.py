@@ -24,7 +24,7 @@ def _log(msg, *args):
     _timing_log.append(f"{ts}  {text}")
 
 # Modelo LLM utilizado en todos los agentes
-GEMINI_MODEL = "gemini-3.1-flash-lite-preview"
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite-preview")
 
 # Patrón que detecta operaciones de escritura en Cypher
 _CYPHER_WRITE_PATTERN = re.compile(
@@ -46,11 +46,11 @@ def _es_query_segura(query: str) -> bool:
     return not _CYPHER_WRITE_PATTERN.search(query)
 
 
-EMBEDDING_MODEL = "gemini-embedding-001"
+EMBEDDING_MODEL = "gemini-embedding-2"
 
 
 def _generar_embedding(api_key: str, texto: str) -> list:
-    """Convierte texto en un vector de 768 dimensiones via REST (gemini-embedding-001)."""
+    """Convierte texto en un vector de 768 dimensiones via REST (gemini-embedding-2)."""
     import requests
     resp = requests.post(
         f"https://generativelanguage.googleapis.com/v1beta/models/{EMBEDDING_MODEL}:embedContent",
@@ -192,7 +192,8 @@ Contexto del flujo:
 
         # Config combinado: evalúa candidatas Y redacta toda la respuesta en una sola llamada
         self.config_evaluador_redactor = types.GenerateContentConfig(
-            system_instruction="""Eres evaluador médico y redactor para un asistente médico virtual. Respondés en español.
+            system_instruction="""Eres evaluador médico y redactor para un asistente médico virtual.
+Responde SIEMPRE en el idioma indicado en el prompt ("es"=español, "en"=inglés).
 Recibes la consulta del paciente, síntomas descartados, síntomas ya conocidos y datos de enfermedades con todos sus síntomas.
 
 CASO A — Ganador claro (score muy superior, síntomas inequívocos, o síntomas descartados eliminan las demás):
@@ -211,16 +212,17 @@ Preferencia de gravedad: leve > moderada > grave > crítica.
 Usá los síntomas descartados para eliminar candidatas.""",
         )
 
-        # Config unificado: clasifica intención Y extrae síntomas en una sola llamada
+        # Config unificado: clasifica intención, detecta idioma Y extrae síntomas en una sola llamada
         self.config_analizador = types.GenerateContentConfig(
-            system_instruction="""Analizas mensajes de un asistente médico. Dos tareas:
+            system_instruction="""Analizas mensajes de un asistente médico. Tres tareas:
 1) Intención: SALUDO|FUNCIONALIDAD|SALUDO_FUNC|CONSULTA
    SALUDO=solo saludo/expresión social. FUNCIONALIDAD=pregunta sobre qué puede hacer el asistente.
    SALUDO_FUNC=ambas. CONSULTA=síntomas/enfermedades/medicamentos. Mezcla con consulta médica→CONSULTA.
-2) Síntomas con intensidad (solo si CONSULTA):
-   'un poco','leve','apenas'→0.7 | sin adjetivos→1.0 | 'mucho','muy','fuerte','muchísimo'→1.35
+2) Idioma del mensaje: "es" si está en español, "en" si está en inglés.
+3) Síntomas con intensidad (solo si CONSULTA). Normaliza SIEMPRE los nombres al español médico:
+   'a little','mild','barely'/'un poco','leve','apenas'→0.7 | sin adjetivos→1.0 | 'a lot','very','strong'/'mucho','muy','fuerte'→1.35
 Devuelve SOLO JSON sin markdown:
-{"intencion":"CONSULTA","sintomas":[{"nombre":"Sintoma","intensidad":1.0}]}
+{"intencion":"CONSULTA","idioma":"es","sintomas":[{"nombre":"nombre en español","intensidad":1.0}]}
 Si no es CONSULTA, "sintomas":[].""",
             temperature=0.0,
             max_output_tokens=150,
@@ -229,7 +231,7 @@ Si no es CONSULTA, "sintomas":[].""",
         # Configuración del modelo 0b: Responde saludos y preguntas de funcionalidad
         self.config_conversacional = types.GenerateContentConfig(
             system_instruction="""Eres MEDIC-AI, un asistente de orientación médica con inteligencia artificial.
-Respondes en español, de forma cálida y concisa.
+Responde en el mismo idioma que usa el usuario en su mensaje, de forma cálida y concisa.
 
 Si el usuario saluda → devuelve un saludo cordial y preséntate brevemente.
 Si pregunta por tu funcionalidad → explica que podés relacionar síntomas con posibles enfermedades,
@@ -258,6 +260,11 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
         r'entendido|de\s+nada|por\s+favor)[!?.,\s]*$',
         re.IGNORECASE,
     )
+    # Subconjunto de saludos que son exclusivamente en inglés
+    _SALUDOS_EN = re.compile(
+        r'^\s*(hi|hey|thank\s+you|thanks|bye|ok|okay)[!?.,\s]*$',
+        re.IGNORECASE,
+    )
 
     def preguntar(self, texto_usuario: str, historial: list = None,
                   contexto_diferencial: dict = None) -> tuple:
@@ -281,7 +288,13 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
         ):
             _log("[preguntar] saludo detectado por regex: %.3fs | TOTAL: %.3fs (0 LLM calls)",
                  time.time() - t_inicio, time.time() - t_inicio)
+            _en = bool(self._SALUDOS_EN.match(texto_strip))
             return (
+                "Hello! I'm **MEDIC-AI**, your AI medical guidance assistant. "
+                "Describe your symptoms and I'll help identify possible causes, "
+                "the recommended medical specialty, and severity level. "
+                "Remember I'm not a substitute for a certified doctor. How can I help you?"
+                if _en else
                 "¡Hola! Soy **MEDIC-AI**, tu asistente de orientación médica. "
                 "Podés describirme tus síntomas y te ayudaré a identificar posibles causas, "
                 "la especialidad médica recomendada y el nivel de gravedad. "
@@ -291,6 +304,7 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
 
         # ── Paso 0+1: Clasificar intención y extraer síntomas (llamada unificada) ──
         intencion = "CONSULTA"
+        idioma = "es"  # default; se actualiza con la respuesta del analizador
         sintomas_nuevos = []
         try:
             analisis_str = _generar_con_reintento(
@@ -298,6 +312,9 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
             ).strip()
             analisis = _json.loads(analisis_str)
             intencion = str(analisis.get("intencion", "CONSULTA")).strip().upper()
+            idioma = str(analisis.get("idioma", "es")).strip().lower()
+            if idioma not in ("es", "en"):
+                idioma = "es"
             candidatos = analisis.get("sintomas", [])
             if isinstance(candidatos, list) and all(
                 isinstance(item, dict) and "nombre" in item and "intensidad" in item
@@ -424,17 +441,28 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
 
             if cypher_query.lower() == "error":
                 return (
+                    "I'm sorry, my database only contains information about diseases, symptoms, "
+                    "and medical specialties. Can you rephrase your question?"
+                    if idioma == "en" else
                     "Lo siento, mi base de datos solo contiene información sobre enfermedades, "
                     "síntomas y especialidades médicas. ¿Puedes reformular tu pregunta?"
                 ), None
 
             if not _es_query_segura(cypher_query):
-                return "Lo siento, no puedo procesar esa solicitud.", None
+                return (
+                    "I'm sorry, I can't process that request."
+                    if idioma == "en" else
+                    "Lo siento, no puedo procesar esa solicitud."
+                ), None
 
             try:
                 datos = self.db.ejecutar_consulta(cypher_query)
             except ServiceUnavailable:
-                return "No se pudo conectar a la base de datos. Por favor intenta de nuevo más tarde.", None
+                return (
+                    "Could not connect to the database. Please try again later."
+                    if idioma == "en" else
+                    "No se pudo conectar a la base de datos. Por favor intenta de nuevo más tarde."
+                ), None
             except (CypherSyntaxError, Exception):
                 datos = []
 
@@ -443,6 +471,9 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
 
         if not datos:
             return (
+                "I couldn't find conditions matching the described symptoms. "
+                "Can you provide more details or mention other symptoms?"
+                if idioma == "en" else
                 "No encontré condiciones que coincidan con los síntomas descritos. "
                 "¿Puedes dar más detalles o mencionar otros síntomas?"
             ), None
@@ -464,6 +495,7 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
         ]
 
         prompt_evaluacion = f"""
+Idioma de respuesta: {"english" if idioma == "en" else "español"}
 Consulta del paciente: "{texto_usuario}"
 Síntomas descartados (el paciente NO los tiene): {sintomas_negados if sintomas_negados else "ninguno"}
 Síntomas ya conocidos (NO volver a preguntar): {list(ya_vistos) if ya_vistos else "ninguno"}

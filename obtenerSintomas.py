@@ -79,9 +79,10 @@ class MedicoDB:
                 {
                     "enfermedad": record["enfermedad"],
                     "gravedad": record["gravedad"],
-                    "score": round(record["score_final"], 2),
+                    "score": round(record["score_final"] or 0, 2),
                 }
                 for record in result
+                if record["enfermedad"] is not None
             ]
 
     def obtener_sintomas_enfermedades(self, nombres: list) -> dict:
@@ -117,8 +118,9 @@ class MedicoDB:
                 {
                     "enfermedad": record["enfermedad"],
                     "gravedad": record["gravedad"],
-                    "score": round(record["score_final"], 2),
+                    "score": round(record["score_final"] or 0, 2),
                 }
                 for record in result
+                if record["enfermedad"] is not None
             ]
 
