@@ -249,32 +249,30 @@ with st.expander("¿Cómo está construido y cómo funciona el sistema?"):
   <div class="flow-step">
     <div class="step-num">4</div>
     <div class="step-body">
-      <strong>Evaluación diagnóstica <span class="step-badge badge-blue">Gemini Lite</span></strong>
-      <span>Un modelo evaluador analiza los candidatos ordenados por score. Devuelve
-      <code>DECISION: &lt;enfermedad&gt;</code> si hay un ganador claro, o
-      <code>DIFERENCIAL: &lt;Enf A&gt;, &lt;Enf B&gt;</code> si compiten varias.
-      Los síntomas negados por el paciente se usan para descartar candidatas.</span>
+      <strong>Evaluación + redacción — llamada fusionada <span class="step-badge badge-blue">Gemini Lite · 1 llamada</span></strong>
+      <span>Un modelo evaluador-redactor analiza las candidatas ordenadas por score junto con sus
+      síntomas completos (traídos de Neo4j sin costo de API), los síntomas ya descartados por el
+      paciente y las rondas de diferencial previas. En una sola llamada produce uno de dos outputs:<br><br>
+      &nbsp;&nbsp;<code>DIFERENCIAL_SINTOMA: &lt;síntoma&gt;</code> + pregunta al paciente
+      — cuando varias candidatas compiten y aún quedan rondas (<code>rondas_diferencial &lt; 2</code>).
+      El síntoma elegido tiene máximo <em>poder diferenciador</em> (presente en unas candidatas,
+      ausente en otras).<br><br>
+      &nbsp;&nbsp;Respuesta final en lenguaje natural — cuando hay un ganador claro o se agotaron
+      las rondas diferenciales. Incluye enfermedad, gravedad, especialidad médica recomendada y
+      precauciones, siempre recordando consultar a un médico.</span>
     </div>
   </div>
 
   <div class="flow-step">
-    <div class="step-num">5a</div>
+    <div class="step-num">5</div>
     <div class="step-body">
-      <strong>Diagnóstico diferencial — pregunta de descarte <span class="step-badge badge-blue">Gemini Lite</span></strong>
-      <span>Cuando hay empate, se consultan en Neo4j todos los síntomas de cada candidata.
-      Un selector LLM elige el síntoma con mayor <em>poder diferenciador</em> (presente en
-      algunas candidatas pero ausente en otras) y el asistente se lo pregunta al paciente.
-      El contexto se guarda para el siguiente turno.</span>
-    </div>
-  </div>
-
-  <div class="flow-step">
-    <div class="step-num">5b</div>
-    <div class="step-body">
-      <strong>Redacción de la respuesta final <span class="step-badge badge-blue">Gemini Lite</span></strong>
-      <span>Con la enfermedad decidida, un modelo redactor convierte los datos crudos del grafo
-      (gravedad, especialidad, síntomas asociados) en una respuesta empática en lenguaje natural,
-      recordando siempre consultar a un médico para un diagnóstico definitivo.</span>
+      <strong>Renderizado y persistencia del contexto</strong>
+      <span>Se parsea la primera línea del output del paso anterior:<br><br>
+      · Si empieza con <code>DIFERENCIAL_SINTOMA:</code>, el síntoma preguntado y los síntomas
+      confirmados/negados/acumulados se guardan en <code>session_state</code> para el siguiente
+      turno. La conversación continúa volviendo al paso 2.<br><br>
+      · En caso contrario, el contexto diferencial se limpia y la respuesta se muestra
+      directamente al paciente.</span>
     </div>
   </div>
 

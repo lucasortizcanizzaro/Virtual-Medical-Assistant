@@ -61,6 +61,26 @@ class MedicoDB:
             result = session.run(cypher, datos=sintomas_con_vector)
             return [record.data() for record in result]
 
+    def filtrar_por_negados(self, enfermedades: list, sintomas_negados: list, umbral: float = 0.70) -> set:
+        """Devuelve el conjunto de nombres de enfermedades que tienen al menos un síntoma
+        negado con probabilidad_presencia >= umbral. Estas enfermedades deben eliminarse
+        del diferencial porque sus síntomas cardinales fueron descartados por el paciente.
+        """
+        if not enfermedades or not sintomas_negados:
+            return set()
+        negados_norm = [s.lower() for s in sintomas_negados]
+        cypher = """
+        MATCH (e:Enfermedad)-[rel:GENERA]->(s:Sintoma)
+        WHERE e.nombre IN $enfermedades
+          AND rel.probabilidad_presencia >= $umbral
+          AND toLower(s.nombre) IN $negados_norm
+        RETURN DISTINCT e.nombre AS enfermedad
+        """
+        with self.driver.session() as session:
+            result = session.run(cypher, enfermedades=enfermedades, umbral=umbral,
+                                 negados_norm=negados_norm)
+            return {record["enfermedad"] for record in result}
+
     def obtener_ranking_enfermedades(self, lista_sintomas: list) -> list:
         """Top 3 enfermedades por score = suma(sensibilidad) × frecuencia poblacional."""
         query = """

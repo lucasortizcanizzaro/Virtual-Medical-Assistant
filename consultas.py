@@ -224,7 +224,10 @@ REGLAS DE CIERRE OBLIGATORIO — ir siempre al CASO A si:
 En ese caso, elegí la candidata más común/frecuente y redactá respuesta CASO A.
 
 Preferencia de gravedad: leve > moderada > grave > crítica.
-Usá los síntomas descartados para eliminar candidatas.""",
+ELIMINACIÓN OBLIGATORIA POR SÍNTOMAS NEGADOS: si una candidata tiene como síntoma cardinal
+(alto en su lista de todos_sintomas) alguno que figura en "Síntomas descartados", esa enfermedad
+DEBE SER IGNORADA COMPLETAMENTE. No la menciones, no la justifiques, ni siquiera como descartada.
+Ejemplo: si el paciente negó "dolor de garganta" y "fiebre alta", la amigdalitis NO puede ser diagnóstico.""",
         )
 
         # Config unificado: clasifica intención, detecta idioma Y extrae síntomas en una sola llamada
@@ -236,6 +239,9 @@ Usá los síntomas descartados para eliminar candidatas.""",
 2) Idioma del mensaje: "es" si está en español, "en" si está en inglés.
 3) Síntomas con intensidad (solo si CONSULTA). Normaliza SIEMPRE los nombres al español médico:
    'a little','mild','barely'/'un poco','leve','apenas'→0.7 | sin adjetivos→1.0 | 'a lot','very','strong'/'mucho','muy','fuerte'→1.35
+   CRÍTICO: SOLO incluir síntomas que el paciente CONFIRMA tener.
+   Si el mensaje niega un síntoma (ej: "no tengo fiebre", "sin fiebre", "niego fiebre") → NO lo incluyas.
+   Palabras de negación: no, sin, niego, niega, descarto, descarta, tampoco, nunca, jamás, negativo.
 Devuelve SOLO JSON sin markdown:
 {"intencion":"CONSULTA","idioma":"es","sintomas":[{"nombre":"nombre en español","intensidad":1.0}]}
 Si no es CONSULTA, "sintomas":[].""",
@@ -410,9 +416,16 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
         nombres_acumulados = {s["nombre"].lower() for s in sintomas_acumulados}
 
         for s in sintomas_nuevos:
-            if s["nombre"].lower() not in nombres_acumulados:
+            # Guardia: no añadir un síntoma que el paciente negó explícitamente.
+            # Cubre el caso en que el extractor saca "fiebre" de "no tengo fiebre".
+            nombre_lower = s["nombre"].lower()
+            negado = any(
+                nombre_lower in n.lower() or n.lower() in nombre_lower
+                for n in sintomas_negados
+            )
+            if not negado and nombre_lower not in nombres_acumulados:
                 sintomas_acumulados.append(s)
-                nombres_acumulados.add(s["nombre"].lower())
+                nombres_acumulados.add(nombre_lower)
 
         for nombre in sintomas_confirmados:
             if nombre.lower() not in nombres_acumulados:
@@ -509,6 +522,28 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
             {**d, "todos_sintomas": sintomas_por_enf.get(d["enfermedad"], d.get("sintomas", []))}
             for d in datos
         ]
+
+        # ── Filtro de síntomas negados ─────────────────────────────────────────
+        # Elimina candidatas cuyos síntomas cardinales (prob >= 0.70) fueron
+        # descartados por el paciente. Esto evita diagnósticos absurdos como
+        # "amigdalitis" cuando el paciente negó fiebre y dolor de garganta.
+        if sintomas_negados:
+            try:
+                enf_a_eliminar = self.db.filtrar_por_negados(
+                    [d["enfermedad"] for d in datos_con_sintomas],
+                    sintomas_negados,
+                    umbral=0.70,
+                )
+                if enf_a_eliminar:
+                    filtrados = [d for d in datos_con_sintomas
+                                 if d["enfermedad"] not in enf_a_eliminar]
+                    # Solo aplicar el filtro si queda al menos 1 candidata
+                    if filtrados:
+                        datos_con_sintomas = filtrados
+                        _log("[preguntar] Filtro negados: eliminadas=%s | quedan=%d",
+                             enf_a_eliminar, len(datos_con_sintomas))
+            except Exception as e:
+                _log("[preguntar] Filtro negados ERROR: %s", e)
 
         # Resumen legible de candidatas para el prompt (incluye frecuencia explícita)
         resumen_candidatas = []
