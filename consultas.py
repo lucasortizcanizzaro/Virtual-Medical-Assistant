@@ -208,6 +208,13 @@ CASO B — Varias enfermedades compiten (scores similares, síntomas compartidos
   3. A continuación, la respuesta empática: reconocé los síntomas del paciente, listá las
      condiciones posibles con su gravedad, y preguntá directamente si tiene el síntoma elegido.
 
+REGLAS DE CIERRE OBLIGATORIO — ir siempre al CASO A si se cumple cualquiera de estas condiciones:
+- El prompt indica que las rondas de diferencial ya realizadas son >= 2.
+- La consulta del paciente contiene frases como: "solo tengo", "nada más", "únicamente", "solo esos",
+  "esos son todos", "es todo", "no tengo más", "solamente", "only have", "just have",
+  "that's all", "that's it", "only those", "nothing else".
+En ese caso, elegí la candidata con mayor score y redactá directamente la respuesta (CASO A).
+
 Preferencia de gravedad: leve > moderada > grave > crítica.
 Usá los síntomas descartados para eliminar candidatas.""",
         )
@@ -357,6 +364,7 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
         sintomas_confirmados = list((contexto_diferencial or {}).get("sintomas_confirmados", []))
         sintomas_negados     = list((contexto_diferencial or {}).get("sintomas_negados", []))
         sintomas_acumulados  = list((contexto_diferencial or {}).get("sintomas_acumulados", []))
+        rondas_diferencial   = int((contexto_diferencial or {}).get("rondas_diferencial", 0))
 
         if contexto_diferencial and "sintoma_preguntado" in contexto_diferencial:
             sintoma_preguntado = contexto_diferencial["sintoma_preguntado"]
@@ -496,6 +504,7 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
 
         prompt_evaluacion = f"""
 Idioma de respuesta: {"english" if idioma == "en" else "español"}
+Rondas de diferencial ya realizadas: {rondas_diferencial} (si >= 2, ir directamente al CASO A)
 Consulta del paciente: "{texto_usuario}"
 Síntomas descartados (el paciente NO los tiene): {sintomas_negados if sintomas_negados else "ninguno"}
 Síntomas ya conocidos (NO volver a preguntar): {list(ya_vistos) if ya_vistos else "ninguno"}
@@ -526,6 +535,7 @@ Datos de enfermedades con todos sus síntomas (ordenados por score): {datos_con_
                 "sintomas_confirmados":    sintomas_confirmados,
                 "sintomas_negados":        sintomas_negados,
                 "sintomas_acumulados":     sintomas_acumulados,
+                "rondas_diferencial":      rondas_diferencial + 1,
             }
             _log("[preguntar] Paso 5a diferencial (fusionado en 4) | sintoma=%s | TOTAL: %.2fs",
                         sintoma_dif, time.time() - t_inicio)
