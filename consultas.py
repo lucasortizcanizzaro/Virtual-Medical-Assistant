@@ -196,24 +196,32 @@ Contexto del flujo:
 Responde SIEMPRE en el idioma indicado en el prompt ("es"=español, "en"=inglés).
 Recibes la consulta del paciente, síntomas descartados, síntomas ya conocidos y datos de enfermedades con todos sus síntomas.
 
-CASO A — Ganador claro (score muy superior, síntomas inequívocos, o síntomas descartados eliminan las demás):
-  Redactá directamente una respuesta empática: nombrá la condición probable, su gravedad,
-  síntomas que la sustentan, especialidad/es recomendadas y recordale consultar a un médico. Sin prefijo.
+REGLA DE ORO — FRECUENCIA Y RAREZA:
+- Preferí SIEMPRE enfermedades comunes (gripe, resfriado, gastroenteritis, migraña, etc.) sobre enfermedades raras (vasculitis, Behçet, crioglobulinemia, etc.).
+- Solo elegí una enfermedad rara si los síntomas del paciente son MUY específicos de esa enfermedad (p.ej. úlceras orales recurrentes + genitales → Behçet). Síntomas genéricos como "fiebre" o "dolor de cabeza" NUNCA justifican sugerir una enfermedad rara como primera opción.
+- Usá el campo score_final para orientarte: si una enfermedad rara lidera por poco margen sobre enfermedades comunes, elegí la común.
 
-CASO B — Varias enfermedades compiten (scores similares, síntomas compartidos, cuadro ambiguo):
-  1. Elegí el síntoma con MAYOR poder diferenciador: presente en ALGUNAS candidatas pero AUSENTE
-     en otras, NO en la lista de ya_conocidos, fácil de identificar por el paciente.
+ESTILO DE RESPUESTA — OBLIGATORIO:
+- Sé MUY conciso. Máximo 3-4 oraciones en CASO A, máximo 2 oraciones + pregunta en CASO B.
+- NO repitas el aviso médico en cada mensaje. Solo inclúyelo una vez, al final del CASO A.
+- NO hagas listas largas de condiciones ni de síntomas de alarma.
+
+CASO A — Ganador claro (score superior, síntomas inequívocos, o síntomas descartados eliminan las demás):
+  Una respuesta breve: nombrá la condición probable, su gravedad, especialidad recomendada y una línea de aviso médico. Sin prefijo. Ejemplo de longitud correcta:
+  "Con fiebre y dolor de cabeza, lo más probable es una gripe o cuadro viral (gravedad leve). Te recomiendo consultar con un médico general. Recordá que esta orientación no reemplaza un diagnóstico profesional."
+
+CASO B — Varias enfermedades comunes compiten (scores similares, cuadro ambiguo):
+  1. Elegí el síntoma diferenciador más COMÚN y fácil de identificar: presente en ALGUNAS candidatas pero AUSENTE en otras, NO en ya_conocidos.
   2. Primera línea obligatoria:
      DIFERENCIAL_SINTOMA: <nombre exacto del síntoma elegido>
-  3. A continuación, la respuesta empática: reconocé los síntomas del paciente, listá las
-     condiciones posibles con su gravedad, y preguntá directamente si tiene el síntoma elegido.
+  3. Dos oraciones máximo reconociendo los síntomas, luego la pregunta en negrita:
+     **¿Tenés [síntoma]?**
 
-REGLAS DE CIERRE OBLIGATORIO — ir siempre al CASO A si se cumple cualquiera de estas condiciones:
-- El prompt indica que las rondas de diferencial ya realizadas son >= 2.
-- La consulta del paciente contiene frases como: "solo tengo", "nada más", "únicamente", "solo esos",
-  "esos son todos", "es todo", "no tengo más", "solamente", "only have", "just have",
-  "that's all", "that's it", "only those", "nothing else".
-En ese caso, elegí la candidata con mayor score y redactá directamente la respuesta (CASO A).
+REGLAS DE CIERRE OBLIGATORIO — ir siempre al CASO A si:
+- Las rondas de diferencial ya realizadas son >= 2.
+- El paciente usa frases como: "solo tengo", "nada más", "únicamente", "solo esos", "esos son todos",
+  "es todo", "no tengo más", "solamente", "only have", "just have", "that's all", "only those".
+En ese caso, elegí la candidata más común/frecuente y redactá respuesta CASO A.
 
 Preferencia de gravedad: leve > moderada > grave > crítica.
 Usá los síntomas descartados para eliminar candidatas.""",
@@ -502,13 +510,31 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
             for d in datos
         ]
 
+        # Resumen legible de candidatas para el prompt (incluye frecuencia explícita)
+        resumen_candidatas = []
+        for d in datos_con_sintomas:
+            freq = d.get("frecuencia")
+            freq_label = (
+                "muy común" if freq is not None and freq >= 0.6 else
+                "común" if freq is not None and freq >= 0.3 else
+                "poco común" if freq is not None and freq >= 0.1 else
+                "rara" if freq is not None else "desconocida"
+            )
+            resumen_candidatas.append({
+                "enfermedad": d["enfermedad"],
+                "gravedad": d["gravedad"],
+                "frecuencia_poblacional": freq_label,
+                "score_final": round(d.get("score_final") or 0, 4),
+                "todos_sintomas": d["todos_sintomas"],
+            })
+
         prompt_evaluacion = f"""
 Idioma de respuesta: {"english" if idioma == "en" else "español"}
 Rondas de diferencial ya realizadas: {rondas_diferencial} (si >= 2, ir directamente al CASO A)
 Consulta del paciente: "{texto_usuario}"
 Síntomas descartados (el paciente NO los tiene): {sintomas_negados if sintomas_negados else "ninguno"}
 Síntomas ya conocidos (NO volver a preguntar): {list(ya_vistos) if ya_vistos else "ninguno"}
-Datos de enfermedades con todos sus síntomas (ordenados por score): {datos_con_sintomas}
+Candidatas ordenadas por score (el campo frecuencia_poblacional indica qué tan común es la enfermedad): {resumen_candidatas}
 """
         t0 = time.time()
         try:

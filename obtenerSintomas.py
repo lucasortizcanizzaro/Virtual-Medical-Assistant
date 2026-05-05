@@ -50,9 +50,10 @@ class MedicoDB:
              collect(DISTINCT esp.nombre) AS especialidades
         RETURN e.nombre AS enfermedad,
                e.gravedad AS gravedad,
+               e.frecuencia AS frecuencia,
                sintomas,
                especialidades,
-               (sensibilidad_ponderada * e.frecuencia) AS score_final
+               (sensibilidad_ponderada * e.frecuencia * e.frecuencia) AS score_final
         ORDER BY score_final DESC
         LIMIT 5
         """
