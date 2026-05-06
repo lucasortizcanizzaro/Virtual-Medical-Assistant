@@ -42,17 +42,15 @@ class MedicoDB:
         YIELD node AS sintoma, score
         WHERE score >= 0.75
         MATCH (e:Enfermedad)-[rel:GENERA]->(sintoma)
-        OPTIONAL MATCH (esp:Especialidad)-[:TRATA]->(e)
-        WITH e, rel, item, sintoma, esp
         WITH e,
              sum(rel.probabilidad_presencia * item.intensidad) AS sensibilidad_ponderada,
-             collect(DISTINCT sintoma.nombre) AS sintomas,
-             collect(DISTINCT esp.nombre) AS especialidades
+             collect(DISTINCT sintoma.nombre) AS sintomas
+        OPTIONAL MATCH (esp:Especialidad)-[:TRATA]->(e)
         RETURN e.nombre AS enfermedad,
                e.gravedad AS gravedad,
                e.frecuencia AS frecuencia,
                sintomas,
-               especialidades,
+               collect(DISTINCT esp.nombre) AS especialidades,
                (sensibilidad_ponderada * e.frecuencia * e.frecuencia) AS score_final
         ORDER BY score_final DESC
         LIMIT 5
