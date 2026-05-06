@@ -1,5 +1,4 @@
-﻿import logging
-import os
+﻿import os
 import re
 import time
 import unicodedata
@@ -25,6 +24,21 @@ def _log(msg, *args):
 
 # Modelo LLM utilizado en todos los agentes
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite-preview")
+
+# Nombres comunes para enfermedades con denominación técnica poco familiar
+_NOMBRES_COMUNES: dict[str, str] = {
+    "cefalea tensional": "dolor de cabeza",
+    "faringitis aguda": "dolor de garganta",
+    "rinitis alérgica": "alergia nasal",
+    "otitis media": "infección de oído",
+    "dermatitis atópica": "eccema",
+    "gastroenteritis aguda": "gastroenteritis",
+    "sinusitis aguda": "sinusitis",
+}
+
+def _nombre_display(nombre: str) -> str:
+    """Devuelve el nombre coloquial si existe, o el original."""
+    return _NOMBRES_COMUNES.get(nombre.lower(), nombre)
 
 # Patrón que detecta operaciones de escritura en Cypher
 _CYPHER_WRITE_PATTERN = re.compile(
@@ -596,7 +610,7 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
                 "rara" if freq is not None else "desconocida"
             )
             resumen_candidatas.append({
-                "enfermedad": d["enfermedad"],
+                "enfermedad": _nombre_display(d["enfermedad"]),
                 "gravedad": d["gravedad"],
                 "frecuencia_poblacional": freq_label,
                 "score_final": round(d.get("score_final") or 0, 4),
