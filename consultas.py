@@ -42,9 +42,13 @@ def _nombre_display(nombre: str) -> str:
 
 # Patrón que detecta operaciones de escritura en Cypher
 _CYPHER_WRITE_PATTERN = re.compile(
-    r'\b(create|delete|detach|merge|set|remove|drop|call)\b',
+    r'\b(create|delete|detach|merge|set|remove|drop|call|load)\b',
     re.IGNORECASE
 )
+
+# Longitud máxima de mensaje aceptada (caracteres). Protege contra payloads
+# gigantes que inflan el costo de la API y facilitan prompt injection.
+_MAX_INPUT_LEN = 2000
 
 
 def _sin_tildes(texto: str) -> str:
@@ -323,6 +327,11 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
         _timing_log.clear()
         t_inicio = time.time()
 
+        # ── Sanitización de input ─────────────────────────────────────────────
+        # Truncar a _MAX_INPUT_LEN antes de cualquier llamada LLM.
+        # Evita payloads gigantes y reduce la superficie de prompt injection.
+        texto_usuario = texto_usuario[:_MAX_INPUT_LEN]
+
         # ── Ruta ultra-rápida: saludo sin palabras médicas → 0 llamadas LLM ──
         # Nunca aplicar si hay un diferencial activo: la respuesta del usuario
         # ("no", "sí", etc.) debe llegar al Paso 2 para resolver la pregunta de descarte.
@@ -537,6 +546,10 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
                     if idioma == "en" else
                     "Lo siento, no puedo procesar esa solicitud."
                 ), None
+
+            # Forzar LIMIT si el LLM lo omitió — evita devolver miles de nodos
+            if not re.search(r'\bLIMIT\b', cypher_query, re.IGNORECASE):
+                cypher_query = cypher_query.rstrip().rstrip(';') + ' LIMIT 20'
 
             try:
                 datos = self.db.ejecutar_consulta(cypher_query)

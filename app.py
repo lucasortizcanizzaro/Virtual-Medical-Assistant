@@ -362,9 +362,10 @@ if prompt := st.chat_input("Describí tus síntomas...  (ej: tengo fiebre y dolo
 
         if _error[0]:
             _slot.empty()
+            # Solo mostrar el tipo de error al usuario, nunca el mensaje completo
+            # (puede contener URIs de BD, claves de API, detalles de infra).
             st.error(
-                f"Error interno al procesar la consulta. Por favor intentá de nuevo.\n\n"
-                f"`{type(_error[0]).__name__}: {_error[0]}`",
+                "Error interno al procesar la consulta. Por favor intentá de nuevo.",
                 icon="🚨",
             )
             st.session_state.contexto_diferencial = None
