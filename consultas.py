@@ -217,6 +217,13 @@ CASO B — Varias enfermedades comunes compiten (scores similares, cuadro ambigu
   3. Dos oraciones máximo reconociendo los síntomas, luego la pregunta en negrita:
      **¿Tenés [síntoma]?**
 
+DURACIÓN DE SÍNTOMAS — usala para discriminar:
+- Síntomas de hoy/2-3 días (agudo): preferir infecciones agudas (gripe, resfriado, amigdalitis, gastroenteritis).
+- Síntomas de 1-4 semanas (subagudo): preferir sinusitis, bronquitis, mononucleosis.
+- Síntomas de 1-3 meses o más (crónico): preferir cefalea tensional crónica, migraña, hipertensión, ansiedad, SII.
+- Si la duración no fue especificada, no la menciones.
+- Siempre incluí la duración reportada en tu respuesta final (CASO A).
+
 REGLAS DE CIERRE OBLIGATORIO — ir siempre al CASO A si:
 - Las rondas de diferencial ya realizadas son >= 2.
 - El paciente usa frases como: "solo tengo", "nada más", "únicamente", "solo esos", "esos son todos",
@@ -232,7 +239,7 @@ Ejemplo: si el paciente negó "dolor de garganta" y "fiebre alta", la amigdaliti
 
         # Config unificado: clasifica intención, detecta idioma Y extrae síntomas en una sola llamada
         self.config_analizador = types.GenerateContentConfig(
-            system_instruction="""Analizas mensajes de un asistente médico. Tres tareas:
+            system_instruction="""Analizas mensajes de un asistente médico. Cuatro tareas:
 1) Intención: SALUDO|FUNCIONALIDAD|SALUDO_FUNC|CONSULTA
    SALUDO=solo saludo/expresión social. FUNCIONALIDAD=pregunta sobre qué puede hacer el asistente.
    SALUDO_FUNC=ambas. CONSULTA=síntomas/enfermedades/medicamentos. Mezcla con consulta médica→CONSULTA.
@@ -242,11 +249,15 @@ Ejemplo: si el paciente negó "dolor de garganta" y "fiebre alta", la amigdaliti
    CRÍTICO: SOLO incluir síntomas que el paciente CONFIRMA tener.
    Si el mensaje niega un síntoma (ej: "no tengo fiebre", "sin fiebre", "niego fiebre") → NO lo incluyas.
    Palabras de negación: no, sin, niego, niega, descarto, descarta, tampoco, nunca, jamás, negativo.
+4) Duración de los síntomas: si el paciente menciona hace cuánto tiempo tiene los síntomas,
+   estimá el número de días como entero en "duracion_dias".
+   Ejemplos: "desde hoy"→0, "hace 2 días"→2, "hace una semana"→7, "hace un mes"→30,
+   "hace 3 meses"→90, "desde hace un año"→365. Si no se menciona: -1.
 Devuelve SOLO JSON sin markdown:
-{"intencion":"CONSULTA","idioma":"es","sintomas":[{"nombre":"nombre en español","intensidad":1.0}]}
-Si no es CONSULTA, "sintomas":[].""",
+{"intencion":"CONSULTA","idioma":"es","duracion_dias":-1,"sintomas":[{"nombre":"nombre en español","intensidad":1.0}]}
+Si no es CONSULTA, "sintomas":[] y "duracion_dias":-1.""",
             temperature=0.0,
-            max_output_tokens=150,
+            max_output_tokens=200,
         )
 
         # Configuración del modelo 0b: Responde saludos y preguntas de funcionalidad
@@ -342,8 +353,10 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
                 for item in candidatos
             ):
                 sintomas_nuevos = candidatos
+            duracion_dias_nuevo = int(analisis.get("duracion_dias", -1))
         except Exception:
             intencion = "CONSULTA"
+            duracion_dias_nuevo = -1
         _log("[preguntar] Paso 1 analizador: %.2fs | intencion=%s | sintomas=%s",
                     time.time() - t_inicio, intencion, [s["nombre"] for s in sintomas_nuevos])
 
@@ -379,6 +392,11 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
         sintomas_negados     = list((contexto_diferencial or {}).get("sintomas_negados", []))
         sintomas_acumulados  = list((contexto_diferencial or {}).get("sintomas_acumulados", []))
         rondas_diferencial   = int((contexto_diferencial or {}).get("rondas_diferencial", 0))
+        # Duración máxima reportada hasta ahora (en días; -1 = desconocida)
+        duracion_dias = max(
+            int((contexto_diferencial or {}).get("duracion_dias", -1)),
+            duracion_dias_nuevo,
+        )
 
         if contexto_diferencial and "sintoma_preguntado" in contexto_diferencial:
             sintoma_preguntado = contexto_diferencial["sintoma_preguntado"]
@@ -432,12 +450,34 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
                 sintomas_acumulados.append({"nombre": nombre, "intensidad": 1.0})
                 nombres_acumulados.add(nombre.lower())
 
+        # Factor de duración: síntomas crónicos amplían el score
+        # (agudo ≤3d → ×1.0; subagudo ≤7d → ×1.1; semanas ≤30d → ×1.25;
+        #  meses ≤90d → ×1.45; crónico >90d → ×1.6)
+        if duracion_dias < 0:
+            _factor_dur = 1.0
+        elif duracion_dias <= 3:
+            _factor_dur = 1.0
+        elif duracion_dias <= 7:
+            _factor_dur = 1.1
+        elif duracion_dias <= 30:
+            _factor_dur = 1.25
+        elif duracion_dias <= 90:
+            _factor_dur = 1.45
+        else:
+            _factor_dur = 1.6
+
         # ── Paso 3: Búsqueda vectorial con todos los síntomas acumulados ──────
         datos = []
         if sintomas_acumulados:
             t0 = time.time()
             try:
                 sintomas_con_vector = _generar_embeddings_sintomas(self._api_key, sintomas_acumulados)
+                # Aplicar factor de duración a la intensidad antes de enviar a Neo4j
+                if _factor_dur != 1.0:
+                    sintomas_con_vector = [
+                        {**s, "intensidad": s["intensidad"] * _factor_dur}
+                        for s in sintomas_con_vector
+                    ]
                 t_embed = time.time() - t0
                 datos = self.db.buscar_con_intensidad_vectorial(sintomas_con_vector)
                 _log("[preguntar] Paso 3 vectorial: embed=%.2fs neo4j=%.2fs resultados=%d", t_embed, time.time() - t0 - t_embed, len(datos))
@@ -563,10 +603,27 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
                 "todos_sintomas": d["todos_sintomas"],
             })
 
+        # Texto descriptivo de la duración para el LLM
+        if duracion_dias < 0:
+            _dur_texto = "no especificada"
+        elif duracion_dias == 0:
+            _dur_texto = "desde hoy (agudo)"
+        elif duracion_dias <= 3:
+            _dur_texto = f"{duracion_dias} día(s) (agudo)"
+        elif duracion_dias <= 7:
+            _dur_texto = f"{duracion_dias} días (subagudo)"
+        elif duracion_dias <= 30:
+            _dur_texto = f"{duracion_dias} días (semanas)"
+        elif duracion_dias <= 90:
+            _dur_texto = f"{duracion_dias} días (~{duracion_dias//30} mes/es)"
+        else:
+            _dur_texto = f"{duracion_dias} días (crónico)"
+
         prompt_evaluacion = f"""
 Idioma de respuesta: {"english" if idioma == "en" else "español"}
 Rondas de diferencial ya realizadas: {rondas_diferencial} (si >= 2, ir directamente al CASO A)
 Consulta del paciente: "{texto_usuario}"
+Duración de los síntomas: {_dur_texto}
 Síntomas descartados (el paciente NO los tiene): {sintomas_negados if sintomas_negados else "ninguno"}
 Síntomas ya conocidos (NO volver a preguntar): {list(ya_vistos) if ya_vistos else "ninguno"}
 Candidatas ordenadas por score (el campo frecuencia_poblacional indica qué tan común es la enfermedad): {resumen_candidatas}
@@ -597,6 +654,7 @@ Candidatas ordenadas por score (el campo frecuencia_poblacional indica qué tan 
                 "sintomas_negados":        sintomas_negados,
                 "sintomas_acumulados":     sintomas_acumulados,
                 "rondas_diferencial":      rondas_diferencial + 1,
+                "duracion_dias":           duracion_dias,
             }
             _log("[preguntar] Paso 5a diferencial (fusionado en 4) | sintoma=%s | TOTAL: %.2fs",
                         sintoma_dif, time.time() - t_inicio)

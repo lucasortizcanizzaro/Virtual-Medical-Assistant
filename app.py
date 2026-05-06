@@ -309,10 +309,10 @@ if prompt := st.chat_input("Describí tus síntomas...  (ej: tengo fiebre y dolo
         _ETAPAS = [
             (0.00, "Analizando consulta"),
             (0.15, "Consultando base de datos"),
-            (0.25, "Evaluando diagnóstico"),
-            (0.50, "Preparando respuesta"),
+            (0.30, "Evaluando diagnóstico"),
+            (0.45, "Preparando respuesta"),
         ]
-        _TOTAL_S = 30.0   # duración esperada en segundos
+        _TOTAL_S = 15.0   # duración esperada en segundos
         _TICK    = 0.12   # intervalo de refresco
 
         _resultado = [None, None]
@@ -381,5 +381,7 @@ if prompt := st.chat_input("Describí tus síntomas...  (ej: tengo fiebre y dolo
 
 # ── Timing del último turno (fuera del if prompt para persistir en re-renders) ──
 if st.session_state.get("ultimo_timing"):
-    with st.expander("⏱ Timing", expanded=True):
-        st.code("\n".join(st.session_state.ultimo_timing))
+    # with st.expander("⏱ Timing", expanded=True):
+    #    st.code("\n".join(st.session_state.ultimo_timing))
+    print("\n".join(st.session_state.ultimo_timing))
+    
