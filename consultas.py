@@ -8,6 +8,7 @@ from google.genai import types
 from neo4j.exceptions import ServiceUnavailable, CypherSyntaxError
 from google.genai.errors import ClientError, ServerError
 from obtenerSintomas import MedicoDB
+import tracer as _tracer
 
 # En local carga el .env; en Streamlit Cloud no existe ese archivo
 # y las credenciales se leen desde st.secrets (ver más abajo).
@@ -326,6 +327,7 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
 
         _timing_log.clear()
         t_inicio = time.time()
+        _tracer.new_trace(texto_usuario)
 
         # ── Sanitización de input ─────────────────────────────────────────────
         # Truncar a _MAX_INPUT_LEN antes de cualquier llamada LLM.
@@ -341,9 +343,12 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
             and self._SALUDOS.match(texto_strip)
             and not self._KW_MEDICOS.search(texto_strip)
         ):
+            _tracer.start_span("regex_fast", "Fast path · saludo (regex)", "regex")
+            _tracer.end_span("regex_fast", {"ruta": "saludo_directo"})
             _log("[preguntar] saludo detectado por regex: %.3fs | TOTAL: %.3fs (0 LLM calls)",
                  time.time() - t_inicio, time.time() - t_inicio)
             _en = bool(self._SALUDOS_EN.match(texto_strip))
+            _tracer.finish_trace()
             return (
                 "Hello! I'm **MEDIC-AI**, your AI medical guidance assistant. "
                 "Describe your symptoms and I'll help identify possible causes, "
@@ -361,6 +366,8 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
         intencion = "CONSULTA"
         idioma = "es"  # default; se actualiza con la respuesta del analizador
         sintomas_nuevos = []
+        _tracer.start_span("analizador", "Analizador · intent + síntomas", "llm",
+                           {"chars": len(texto_usuario)})
         try:
             analisis_str = _generar_con_reintento(
                 self.client, GEMINI_MODEL, texto_usuario, self.config_analizador
@@ -380,19 +387,27 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
         except Exception:
             intencion = "CONSULTA"
             duracion_dias_nuevo = -1
+        _tracer.end_span("analizador", {"intencion": intencion, "idioma": idioma,
+                                        "n_sintomas": len(sintomas_nuevos),
+                                        "duracion_dias": duracion_dias_nuevo})
         _log("[preguntar] Paso 1 analizador: %.2fs | intencion=%s | sintomas=%s",
                     time.time() - t_inicio, intencion, [s["nombre"] for s in sintomas_nuevos])
 
         if intencion in ("SALUDO", "FUNCIONALIDAD", "SALUDO_FUNC") and not contexto_diferencial:
             try:
                 t0 = time.time()
+                _tracer.start_span("conversacional", "Conversacional · saludo/func", "llm")
                 resp = _generar_con_reintento(
                     self.client, GEMINI_MODEL, texto_usuario, self.config_conversacional
                 )
+                _tracer.end_span("conversacional", {"chars": len(resp)})
                 _log("[preguntar] conversacional: %.2fs | TOTAL: %.2fs",
                             time.time() - t0, time.time() - t_inicio)
+                _tracer.finish_trace()
                 return resp, None
             except Exception as e:
+                _tracer.end_span("conversacional", status="error")
+                _tracer.finish_trace()
                 return str(e), None
 
         # ── Flujo médico ─────────────────────────────────────────────────────
@@ -494,6 +509,8 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
         if sintomas_acumulados:
             t0 = time.time()
             try:
+                _tracer.start_span("embed", "Embeddings · síntomas → vectores", "embed",
+                                   {"n_sintomas": len(sintomas_acumulados)})
                 sintomas_con_vector = _generar_embeddings_sintomas(self._api_key, sintomas_acumulados)
                 # Aplicar factor de duración a la intensidad antes de enviar a Neo4j
                 if _factor_dur != 1.0:
@@ -502,9 +519,17 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
                         for s in sintomas_con_vector
                     ]
                 t_embed = time.time() - t0
+                _tracer.end_span("embed", {"n_vectores": len(sintomas_con_vector)})
+                _tracer.start_span("neo4j_vector", "Neo4j · búsqueda vectorial", "neo4j",
+                                   {"n_vectores": len(sintomas_con_vector)})
                 datos = self.db.buscar_con_intensidad_vectorial(sintomas_con_vector)
+                _tracer.end_span("neo4j_vector",
+                                 {"n_candidatas": len(datos),
+                                  "top_score": round(datos[0].get("score_final") or 0, 4) if datos else 0})
                 _log("[preguntar] Paso 3 vectorial: embed=%.2fs neo4j=%.2fs resultados=%d", t_embed, time.time() - t0 - t_embed, len(datos))
             except Exception as e:
+                _tracer.end_span("embed", status="error")
+                _tracer.end_span("neo4j_vector", status="error")
                 _log("[preguntar] Paso 3 vectorial ERROR: %s", e)
                 datos = []
 
@@ -512,11 +537,15 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
         if not datos and sintomas_acumulados:
             t0 = time.time()
             try:
+                _tracer.start_span("neo4j_exact", "Neo4j · fallback nombre exacto", "neo4j",
+                                   {"n_sintomas": len(sintomas_acumulados)})
                 datos = self.db.obtener_ranking_enfermedades(
                     [s["nombre"] for s in sintomas_acumulados]
                 )
+                _tracer.end_span("neo4j_exact", {"n_candidatas": len(datos)})
                 _log("[preguntar] Ruta 2 nombre exacto: %.2fs resultados=%d", time.time() - t0, len(datos))
             except Exception as e:
+                _tracer.end_span("neo4j_exact", status="error")
                 _log("[preguntar] Ruta 2 ERROR: %s", e)
                 datos = []
 
@@ -524,11 +553,16 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
         if not datos and not sintomas_acumulados:
             t0 = time.time()
             try:
+                _tracer.start_span("text2cypher", "Text-to-Cypher · LLM", "llm",
+                                   {"chars": len(contexto)})
                 cypher_query = _generar_con_reintento(
                     self.client, GEMINI_MODEL, contexto, self.config_traductor
                 ).strip()
+                _tracer.end_span("text2cypher", {"cypher_chars": len(cypher_query)})
                 _log("[preguntar] Ruta 3 traductor: %.2fs", time.time() - t0)
             except Exception as e:
+                _tracer.end_span("text2cypher", status="error")
+                _tracer.finish_trace()
                 return str(e), None
 
             if cypher_query.lower() == "error":
@@ -552,8 +586,12 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
                 cypher_query = cypher_query.rstrip().rstrip(';') + ' LIMIT 20'
 
             try:
+                _tracer.start_span("neo4j_cypher", "Neo4j · ejecutar Cypher", "neo4j")
                 datos = self.db.ejecutar_consulta(cypher_query)
+                _tracer.end_span("neo4j_cypher", {"n_resultados": len(datos)})
             except ServiceUnavailable:
+                _tracer.end_span("neo4j_cypher", status="error")
+                _tracer.finish_trace()
                 return (
                     "Could not connect to the database. Please try again later."
                     if idioma == "en" else
@@ -577,10 +615,14 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
         # ── Paso 4: Evaluar y redactar — 1 sola llamada LLM ───────────────────────
         # Obtener todos los síntomas por enfermedad desde Neo4j (rápido, sin costo de API)
         try:
+            _tracer.start_span("neo4j_sintomas", "Neo4j · síntomas por enfermedad", "neo4j",
+                               {"n_enfermedades": len(datos)})
             sintomas_por_enf = self.db.obtener_sintomas_enfermedades(
                 [d["enfermedad"] for d in datos]
             )
+            _tracer.end_span("neo4j_sintomas", {"n_enfermedades_ok": len(sintomas_por_enf)})
         except Exception:
+            _tracer.end_span("neo4j_sintomas", status="error")
             sintomas_por_enf = {}
 
         ya_vistos = nombres_acumulados | {s.lower() for s in sintomas_negados}
@@ -596,6 +638,8 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
         # "amigdalitis" cuando el paciente negó fiebre y dolor de garganta.
         if sintomas_negados:
             try:
+                _tracer.start_span("neo4j_filter", "Neo4j · filtrar síntomas negados", "filter",
+                                   {"n_negados": len(sintomas_negados)})
                 enf_a_eliminar = self.db.filtrar_por_negados(
                     [d["enfermedad"] for d in datos_con_sintomas],
                     sintomas_negados,
@@ -609,7 +653,11 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
                         datos_con_sintomas = filtrados
                         _log("[preguntar] Filtro negados: eliminadas=%s | quedan=%d",
                              enf_a_eliminar, len(datos_con_sintomas))
+                _tracer.end_span("neo4j_filter",
+                                 {"eliminadas": len(enf_a_eliminar) if enf_a_eliminar else 0,
+                                  "quedan": len(datos_con_sintomas)})
             except Exception as e:
+                _tracer.end_span("neo4j_filter", status="error")
                 _log("[preguntar] Filtro negados ERROR: %s", e)
 
         # Resumen legible de candidatas para el prompt (incluye frecuencia explícita)
@@ -656,6 +704,10 @@ Síntomas ya conocidos (NO volver a preguntar): {list(ya_vistos) if ya_vistos el
 Candidatas ordenadas por score (el campo frecuencia_poblacional indica qué tan común es la enfermedad): {resumen_candidatas}
 """
         t0 = time.time()
+        _tracer.start_span("evaluador", "Evaluador + redactor · LLM", "llm",
+                           {"n_candidatas": len(datos_con_sintomas),
+                            "n_negados": len(sintomas_negados),
+                            "rondas": rondas_diferencial})
         try:
             evaluacion = _generar_con_reintento(
                 self.client, GEMINI_MODEL, prompt_evaluacion, self.config_evaluador_redactor
@@ -663,6 +715,8 @@ Candidatas ordenadas por score (el campo frecuencia_poblacional indica qué tan 
             _log('[preguntar] Paso 4+5b evaluador_redactor: %.2fs | resultado=%s',
                         time.time() - t0, evaluacion[:60])
         except Exception as e:
+            _tracer.end_span("evaluador", status="error")
+            _tracer.finish_trace()
             return str(e), None
 
         # ── Paso 5a: Diferencial — parsear síntoma + respuesta del output combinado ──
@@ -683,13 +737,19 @@ Candidatas ordenadas por score (el campo frecuencia_poblacional indica qué tan 
                 "rondas_diferencial":      rondas_diferencial + 1,
                 "duracion_dias":           duracion_dias,
             }
+            _tracer.end_span("evaluador",
+                             {"tipo": "DIFERENCIAL", "sintoma": sintoma_dif,
+                              "chars": len(respuesta)})
             _log("[preguntar] Paso 5a diferencial (fusionado en 4) | sintoma=%s | TOTAL: %.2fs",
                         sintoma_dif, time.time() - t_inicio)
+            _tracer.finish_trace()
             return respuesta, nuevo_contexto
 
         # ── Paso 5b: Respuesta generada directamente por el evaluador-redactor ─
+        _tracer.end_span("evaluador", {"tipo": "FINAL", "chars": len(evaluacion)})
         _log("[preguntar] Paso 5b (incluido en 4+5b) | TOTAL: %.2fs",
                     time.time() - t_inicio)
+        _tracer.finish_trace()
         return evaluacion, None
 
     def cerrar(self):

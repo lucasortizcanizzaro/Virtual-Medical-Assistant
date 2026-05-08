@@ -13,24 +13,6 @@ class MedicoDB:
             result = session.run(cypher_query)
             return [record.data() for record in result]
 
-    def buscar_por_vector(self, index_name: str, vector: list, top_k: int = 5) -> list:
-        """Búsqueda semántica: dado un vector, devuelve enfermedades cuyos síntomas son similares."""
-        cypher = """
-        CALL db.index.vector.queryNodes($index_name, $top_k, $vector)
-        YIELD node AS sintoma, score
-        MATCH (e:Enfermedad)-[:GENERA]->(sintoma)
-        OPTIONAL MATCH (esp:Especialidad)-[:TRATA]->(e)
-        RETURN e.nombre AS enfermedad,
-               e.gravedad AS gravedad,
-               collect(DISTINCT sintoma.nombre) AS sintomas,
-               collect(DISTINCT esp.nombre) AS especialidades,
-               max(score) AS relevancia
-        ORDER BY relevancia DESC
-        """
-        with self.driver.session() as session:
-            result = session.run(cypher, index_name=index_name, top_k=top_k, vector=vector)
-            return [record.data() for record in result]
-
     def buscar_con_intensidad_vectorial(self, sintomas_con_vector: list) -> list:
         """Búsqueda unificada: por cada síntoma busca el nodo más cercano por vector
         y pondera sensibilidad clínica × intensidad del usuario × prevalencia poblacional.
@@ -118,28 +100,5 @@ class MedicoDB:
             result = session.run(cypher, nombres=nombres)
             return {r["enfermedad"]: r["sintomas"] for r in result}
 
-    def obtener_ranking_con_intensidad(self, sintomas_json: list) -> list:
-        """Top 3 enfermedades ponderando sensibilidad clínica por la intensidad declarada por el usuario."""
-        query = """
-        UNWIND $datos AS item
-        MATCH (e:Enfermedad)-[rel:GENERA]->(s:Sintoma)
-        WHERE toLower(s.nombre) = toLower(item.nombre)
-        WITH e, sum(rel.probabilidad_presencia * item.intensidad) AS sensibilidad_ponderada
-        RETURN e.nombre AS enfermedad,
-               e.gravedad AS gravedad,
-               (sensibilidad_ponderada * e.frecuencia) AS score_final
-        ORDER BY score_final DESC
-        LIMIT 3
-        """
-        with self.driver.session() as session:
-            result = session.run(query, datos=sintomas_json)
-            return [
-                {
-                    "enfermedad": record["enfermedad"],
-                    "gravedad": record["gravedad"],
-                    "score": round(record["score_final"] or 0, 2),
-                }
-                for record in result
-                if record["enfermedad"] is not None
-            ]
+
 

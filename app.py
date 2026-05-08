@@ -3,6 +3,7 @@ from pathlib import Path
 import streamlit as st
 import consultas as asistente_module
 from consultas import AsistenteMedico
+import tracer as _tracer
 
 _ASSETS = Path(__file__).parent / "assets"
 
@@ -381,7 +382,8 @@ if prompt := st.chat_input("Describí tus síntomas...  (ej: tengo fiebre y dolo
         st.session_state.ultimo_timing = list(asistente_module._timing_log)
 
 # ── Timing del último turno (fuera del if prompt para persistir en re-renders) ──
-# if st.session_state.get("ultimo_timing"):
-    # with st.expander("⏱ Timing", expanded=True):
-    #    st.code("\n".join(st.session_state.ultimo_timing))
+_last_trace = _tracer.get_last_trace()
+if _last_trace and sum(1 for m in st.session_state.mensajes if m["role"] == "user") > 0:
+    with st.expander("⚡ Trazabilidad del último turno", expanded=False):
+        st.markdown(_tracer.render_trace_html(_last_trace), unsafe_allow_html=True)
     
