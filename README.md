@@ -71,6 +71,31 @@ El sistema opera bajo una arquitectura de agentes coordinados en 6 pasos:
 
 ---
 
+## Keep-Alive En Deploy (sin PC encendida)
+
+Para evitar que el sistema quede inactivo por falta de uso, el proyecto incluye un job programado en GitHub Actions que ejecuta una consulta real al asistente.
+
+### Archivos incluidos
+
+* `.github/workflows/keepalive.yml`: workflow programado.
+* `keepalive_job.py`: script que instancia `AsistenteMedico` y ejecuta una consulta de keep-alive.
+
+### Configuración requerida (GitHub Secrets)
+
+En tu repositorio de GitHub, cargá estos secretos en **Settings > Secrets and variables > Actions**:
+
+* `GEMINI_API_KEY`
+* `NEO4J_URI`
+* `NEO4J_USERNAME`
+* `NEO4J_PASSWORD`
+* `KEEPALIVE_QUERY` (opcional; si no existe usa un texto por defecto)
+
+### Frecuencia de 23 horas
+
+GitHub Actions no permite un cron exacto cada 23 horas. Por eso el workflow se ejecuta cada hora y aplica una compuerta interna que solo corre el keep-alive cuando corresponde la ventana de 23 horas.
+
+---
+
 ## Aviso Legal
 
 Este asistente es una herramienta de **orientación general** basada en inteligencia artificial y no reemplaza el diagnóstico, consejo o tratamiento de un médico certificado. Siempre consulte con un profesional de la salud ante cualquier síntoma o condición médica.

@@ -54,7 +54,7 @@ if "mensajes" not in st.session_state:
                 "especialidad médica más adecuada.\n\n"
                 "> ⚕️ *Soy una herramienta de orientación. Siempre consultá con un médico "
                 "para un diagnóstico definitivo.*\n\n"
-                "¿Qué síntomas estás experimentando?"
+                "¿Qué síntomas estás experimentando, que tan intensos son y desde cuándo los tienes?"
             ),
         }
     ]
@@ -115,7 +115,7 @@ with st.sidebar:
                 "role": "assistant",
                 "content": (
                     "Chat reiniciado. ¡Listo para una nueva consulta!\n\n"
-                    "¿Qué síntomas estás experimentando?"
+                    "¿Qué síntomas estás experimentando, que tan intensos son y desde cuándo los tienes?"
                 ),
             }
         ]
