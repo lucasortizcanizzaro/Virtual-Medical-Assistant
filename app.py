@@ -138,7 +138,7 @@ with st.sidebar:
         <p>Este asistente provee orientación general y no reemplaza el diagnóstico de un médico certificado.</p>
     </div>
     <div class="sb-card" style="border-left:3px solid #0891b2;">
-        <h4>🔍 Puedo ayudarte con</h4>
+        <h4>Puedo ayudarte con</h4>
         <p>
             • Relacionar síntomas con enfermedades<br>
             • Sugerir la especialidad indicada<br>
@@ -173,25 +173,25 @@ with st.expander("¿Cómo está construido y cómo funciona el sistema?"):
 <div class="tech-grid">
 
   <div class="tech-card">
-    <span class="tc-icon">🌐</span>
+    <span class="tc-icon"></span>
     <span class="tc-name">Streamlit</span>
     <span class="tc-role">Interfaz web · gestión del estado de la conversación</span>
   </div>
 
   <div class="tech-card">
-    <span class="tc-icon">✨</span>
+    <span class="tc-icon"></span>
     <span class="tc-name">Google Gemini</span>
     <span class="tc-role">Motor de IA · agentes especializados por tarea (gemini-3.1-flash-lite)</span>
   </div>
 
   <div class="tech-card">
-    <span class="tc-icon">🔢</span>
+    <span class="tc-icon"></span>
     <span class="tc-name">gemini-embedding-2</span>
     <span class="tc-role">Embeddings de 768 dim. vía REST para búsqueda semántica de síntomas</span>
   </div>
 
   <div class="tech-card">
-    <span class="tc-icon">🗄️</span>
+    <span class="tc-icon"></span>
     <span class="tc-name">Neo4j</span>
     <span class="tc-role">Base de datos de grafos · nodos Enfermedad · Sintoma · Especialidad</span>
   </div>
@@ -313,7 +313,7 @@ if prompt := st.chat_input("Describí tus síntomas...  (ej: tengo fiebre y dolo
             (0.30, "Evaluando diagnóstico"),
             (0.45, "Preparando respuesta"),
         ]
-        _TOTAL_S = 15.0   # duración esperada en segundos
+        _TOTAL_S = 10.0   # duración esperada en segundos
         _TICK    = 0.12   # intervalo de refresco
 
         _resultado = [None, None]
@@ -384,6 +384,6 @@ if prompt := st.chat_input("Describí tus síntomas...  (ej: tengo fiebre y dolo
 # ── Timing del último turno (fuera del if prompt para persistir en re-renders) ──
 _last_trace = _tracer.get_last_trace()
 if _last_trace and sum(1 for m in st.session_state.mensajes if m["role"] == "user") > 0:
-    with st.expander("⚡ Trazabilidad del último turno", expanded=False):
+    with st.expander("Trazabilidad del último turno", expanded=False):
         st.markdown(_tracer.render_trace_html(_last_trace), unsafe_allow_html=True)
     
