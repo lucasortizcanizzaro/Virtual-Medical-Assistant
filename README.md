@@ -2,7 +2,7 @@
 
 **MEDIC-AI** es un sistema avanzado de orientación médica basado en evidencia que utiliza una arquitectura de **Graph-RAG** (Generación Aumentada por Recuperación sobre Grafos). Combina el poder de razonamiento de los modelos de lenguaje de Google Gemini con la precisión estructural de una base de datos de grafos Neo4j.
 
-**Link del proyecto:** [https://virtual-medical-assistant-lucasortiz.streamlit.app/](https://virtual-medical-assistant-lucasortiz.streamlit.app/)
+**Link del proyecto:** [https://virtual-medical-assistant-ortizlucas.streamlit.app/](https://virtual-medical-assistant-ortizlucas.streamlit.app/)
 
 ---
 
