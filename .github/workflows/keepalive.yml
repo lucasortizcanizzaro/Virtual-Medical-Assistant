@@ -2,7 +2,7 @@ name: Keepalive Consulta
 
 on:
   schedule:
-    # Se ejecuta cada hora; el paso "Gate 23h" decide si toca correr.
+    # Se ejecuta cada hora
     - cron: "0 * * * *"
   workflow_dispatch:
 
@@ -25,21 +25,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Gate 23h
-        id: gate
-        shell: bash
-        run: |
-          HOURS_SINCE_EPOCH=$(( $(date +%s) / 3600 ))
-          if (( HOURS_SINCE_EPOCH % 2 == 0 )); then
-            echo "run_now=true" >> "$GITHUB_OUTPUT"
-            echo "Ejecutando keepalive en esta ventana horaria."
-          else
-            echo "run_now=false" >> "$GITHUB_OUTPUT"
-            echo "No corresponde ventana de 23h."
-          fi
-
       - name: Run keepalive query
-        if: steps.gate.outputs.run_now == 'true'
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           NEO4J_URI: ${{ secrets.NEO4J_URI }}
