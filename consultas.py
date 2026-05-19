@@ -65,6 +65,25 @@ def _es_query_segura(query: str) -> bool:
     return not _CYPHER_WRITE_PATTERN.search(query)
 
 
+def _extraer_items_texto(resultados: list, max_items: int = 12) -> list[str]:
+    """Extrae valores de texto únicos desde filas dict para respuestas informativas."""
+    vistos: set[str] = set()
+    items: list[str] = []
+    for fila in resultados:
+        if not isinstance(fila, dict):
+            continue
+        for valor in fila.values():
+            if isinstance(valor, str):
+                v = valor.strip()
+                key = v.lower()
+                if v and key not in vistos:
+                    vistos.add(key)
+                    items.append(v)
+                    if len(items) >= max_items:
+                        return items
+    return items
+
+
 EMBEDDING_MODEL = "gemini-embedding-2"
 
 
@@ -265,7 +284,12 @@ Ejemplo: si el paciente negó "dolor de garganta" y "fiebre alta", la amigdaliti
             system_instruction="""Analizas mensajes de un asistente médico. Cuatro tareas:
 1) Intención: SALUDO|FUNCIONALIDAD|SALUDO_FUNC|CONSULTA
    SALUDO=solo saludo/expresión social. FUNCIONALIDAD=pregunta sobre qué puede hacer el asistente.
-   SALUDO_FUNC=ambas. CONSULTA=síntomas/enfermedades/medicamentos. Mezcla con consulta médica→CONSULTA.
+    SALUDO_FUNC=ambas. CONSULTA=el paciente habla de SU caso (síntomas propios, evolución, medicación personal).
+    IMPORTANTE: preguntas generales/informativas NO son CONSULTA. Ejemplos:
+    - "qué enfermedades afectan a la piel"
+    - "qué trata dermatología"
+    - "cuáles son las enfermedades respiratorias"
+    Esas deben ir como FUNCIONALIDAD con sintomas=[].
 2) Idioma del mensaje: "es" si está en español, "en" si está en inglés.
 3) Síntomas con intensidad (solo si CONSULTA). Normaliza SIEMPRE los nombres al español médico:
    'a little','mild','barely'/'un poco','leve','apenas'→0.7 | sin adjetivos→1.0 | 'a lot','very','strong'/'mucho','muy','fuerte'→1.35
@@ -320,6 +344,12 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
         r'^\s*(hi|hey|thank\s+you|thanks|bye|ok|okay)[!?.,\s]*$',
         re.IGNORECASE,
     )
+    _PREGUNTA_INFORMATIVA = re.compile(
+        r'(\b(que|qué|cuales|cuáles|lista|menciona|dime|mostrar|muestrame|muéstrame)\b.*\b(enfermedad|enfermedades|especialidad|especialidades|trata|tratan)\b)'
+        r'|(\b(enfermedad|enfermedades)\b.*\b(piel|dermatolog|gastro|respiratorio|neurolog|cardio)\b)'
+        r'|(\bque\s+trata\b)|(\bwhat\s+(diseases|conditions|specialt(y|ies))\b)|(\bwhich\s+(diseases|conditions)\b)',
+        re.IGNORECASE,
+    )
 
     def preguntar(self, texto_usuario: str, historial: list = None,
                   contexto_diferencial: dict = None) -> tuple:
@@ -370,6 +400,7 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
         intencion = "CONSULTA"
         idioma = "es"  # default; se actualiza con la respuesta del analizador
         sintomas_nuevos = []
+        forzar_text2cypher = bool(self._PREGUNTA_INFORMATIVA.search(_sin_tildes(texto_usuario.lower())))
         _tracer.start_span("analizador", "Analizador · intent + síntomas", "llm",
                            {"chars": len(texto_usuario)})
         try:
@@ -397,7 +428,13 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
         _log("[preguntar] Paso 1 analizador: %.2fs | intencion=%s | sintomas=%s",
                     time.time() - t_inicio, intencion, [s["nombre"] for s in sintomas_nuevos])
 
-        if intencion in ("SALUDO", "FUNCIONALIDAD", "SALUDO_FUNC") and not contexto_diferencial:
+        # Heurística defensiva: para preguntas informativas (no sobre síntomas propios),
+        # priorizar Text-to-Cypher aunque el analizador haya extraído términos sueltos.
+        if forzar_text2cypher and not contexto_diferencial:
+            intencion = "CONSULTA"
+            sintomas_nuevos = []
+
+        if intencion in ("SALUDO", "FUNCIONALIDAD", "SALUDO_FUNC") and not contexto_diferencial and not forzar_text2cypher:
             try:
                 t0 = time.time()
                 _tracer.start_span("conversacional", "Conversacional · saludo/func", "llm")
@@ -554,7 +591,7 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
                 datos = []
 
         # --- Ruta 3: Text-to-Cypher para preguntas sin síntomas (informativas) ---
-        if not datos and not sintomas_acumulados:
+        if not datos and (not sintomas_acumulados or forzar_text2cypher):
             t0 = time.time()
             try:
                 _tracer.start_span("text2cypher", "Text-to-Cypher · LLM", "llm",
@@ -603,6 +640,24 @@ No incluyas diagnósticos ni información médica específica en esta respuesta.
                 ), None
             except (CypherSyntaxError, Exception):
                 datos = []
+
+            if forzar_text2cypher:
+                items = _extraer_items_texto(datos)
+                _tracer.finish_trace()
+                if not items:
+                    return (
+                        "I couldn't find clear matches for that informational query in my database. "
+                        "Try asking, for example: 'What does dermatology treat?'"
+                        if idioma == "en" else
+                        "No encontré coincidencias claras para esa consulta informativa en mi base. "
+                        "Puedes probar, por ejemplo: '¿Qué trata dermatología?'"
+                    ), None
+                listado = ", ".join(items)
+                return (
+                    f"These are some conditions related to your query: {listado}."
+                    if idioma == "en" else
+                    f"Estas son algunas enfermedades relacionadas con tu consulta: {listado}."
+                ), None
 
         # Normalizar datos: asegurar que todos los registros tengan la clave "enfermedad"
         datos = [d for d in datos if isinstance(d, dict) and d.get("enfermedad")]
