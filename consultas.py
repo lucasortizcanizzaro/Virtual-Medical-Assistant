@@ -161,12 +161,16 @@ def _seleccionar_sintoma_fallback(sintomas_por_enf: dict, ya_vistos: set) -> str
 
 
 def _get_secret(key: str) -> str:
-    """Lee un secret desde st.secrets (Streamlit Cloud) o desde variables de entorno (local)."""
+    """Lee un secret desde variables de entorno (GitHub Actions) o desde st.secrets (Streamlit Cloud/local)."""
+    import os
+    value = os.getenv(key)
+    if value:
+        return value
     try:
         import streamlit as st
         return st.secrets[key]
-    except (ImportError, KeyError):
-        return os.getenv(key, "")
+    except Exception:
+        raise RuntimeError(f"Secret '{key}' no encontrado en variables de entorno ni en st.secrets")
 
 
 class AsistenteMedico:
